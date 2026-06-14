@@ -73,6 +73,7 @@
 		<module>configurator</module>
 		<module>bms-jbd-rs485</module>
 		<module>bms-huawei-modbus</module>
+		<module>bms-huawei-esm48150-modbus</module>
 		<module>inverter-huawei-modbus</module>
 		<module>bms-dummy</module>
 	</modules>
