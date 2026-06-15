@@ -30,7 +30,7 @@ import com.airepublic.bmstoinverter.protocol.modbus.ModbusUtil.RegisterCode;
  * to avoid bus contention with other devices sharing the RS485 line.
  *
  * Confirmed register map (mbpoll 1-based / PDU 0-based):
- *   1/0  : pack voltage    (raw ÷ 10 → 0.1V;  e.g. 4970 = 49.70V)
+ *   1/0  : pack voltage    (raw ÷ 100 → 0.1V; unit is 0.01V, e.g. 4983 = 49.83V)
  *   2/1  : rated voltage   (informational, same unit)
  *   3/2  : pack current    (signed 0.1A; positive=charge, negative=discharge)
  *   4/3  : SOC             (% × 10 → 0.1%;   e.g. 86 → 860)
@@ -68,25 +68,28 @@ public class HuaweiEsm48150BmsModbusProcessor extends BMS {
         final int unitId = frame.getInt();
         final BatteryPack pack = getBatteryPack(unitId);
 
+        // Each register is stored as a 4-byte int by ModbusUtil.toBuffer(); cast to short to get
+        // the signed 16-bit value.
+
         // regs 1-7 (PDU 0-6): pack status
-        pack.packVoltage = frame.getShort() / 10;    // reg 1: raw ÷ 10 → 0.1V
-        frame.getShort();                              // reg 2: skip (varies, not rated voltage)
-        pack.packCurrent = frame.getShort();           // reg 3: signed 0.1A
-        pack.packSOC = frame.getShort() * 10;          // reg 4: SOC % → 0.1%
-        frame.getShort();                              // reg 5: constant 100 (max charge limit), not SOH
-        pack.tempMax = frame.getShort() * 10;          // reg 6: °C → 0.1°C
-        pack.tempMin = frame.getShort() * 10;          // reg 7: °C → 0.1°C
+        pack.packVoltage = (short) frame.getInt() / 10;   // reg 1: raw in 0.01V × (0.01/0.1) → 0.1V
+        frame.getInt();                                     // reg 2: skip (secondary voltage reading)
+        pack.packCurrent = (short) frame.getInt();          // reg 3: signed 0.1A
+        pack.packSOC = (short) frame.getInt() * 10;         // reg 4: SOC % → 0.1%
+        frame.getInt();                                     // reg 5: constant 100 (max charge limit), not SOH
+        pack.tempMax = (short) frame.getInt() * 10;         // reg 6: °C → 0.1°C
+        pack.tempMin = (short) frame.getInt() * 10;         // reg 7: °C → 0.1°C
         pack.tempAverage = (pack.tempMax + pack.tempMin) / 2;
 
         // regs 8-18 (PDU 7-17): skip unused
         for (int i = 0; i < 11; i++) {
-            frame.getShort();
+            frame.getInt();
         }
 
         // regs 19-29 (PDU 18-28): cell temperatures
         pack.numOfTempSensors = 0;
         for (int i = 0; i < 11; i++) {
-            final short raw = frame.getShort();
+            final short raw = (short) frame.getInt();
             if (raw != -999 && raw != -1) {
                 pack.cellTemperature[i] = raw * 10; // °C → 0.1°C
                 pack.numOfTempSensors++;
@@ -95,15 +98,15 @@ public class HuaweiEsm48150BmsModbusProcessor extends BMS {
 
         // regs 30-34 (PDU 29-33): unavailable sensor markers (-999), skip
         for (int i = 0; i < 5; i++) {
-            frame.getShort();
+            frame.getInt();
         }
 
-        // regs 35-45 (PDU 34-44): cell voltages
+        // regs 35-45 (PDU 34-44): cell voltages in mV
         pack.numberOfCells = 0;
         pack.minCellmV = Integer.MAX_VALUE;
         pack.maxCellmV = Integer.MIN_VALUE;
         for (int i = 0; i < 11; i++) {
-            final short raw = frame.getShort();
+            final short raw = (short) frame.getInt();
             if (raw != -1) { // 0xFFFF = no cell connected
                 pack.cellVmV[i] = raw; // mV direct
                 pack.numberOfCells++;
