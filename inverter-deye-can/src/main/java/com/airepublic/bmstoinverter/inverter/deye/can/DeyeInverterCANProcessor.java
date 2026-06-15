@@ -119,7 +119,7 @@ public class DeyeInverterCANProcessor extends Inverter {
 
     // 0x35C
     private ByteBuffer createChargeDischargeFlags(final BatteryPack pack) {
-        final ByteBuffer frame = prepareSendFrame(0x035E);
+        final ByteBuffer frame = prepareSendFrame(0x035C);
         byte flags = 0x00;
 
         // request full charge
@@ -142,7 +142,7 @@ public class DeyeInverterCANProcessor extends Inverter {
         int idx = 0;
 
         while (idx < pack.manufacturerCode.length() && idx < 8) {
-            frame.putChar(pack.manufacturerCode.charAt(idx));
+            frame.put((byte) pack.manufacturerCode.charAt(idx));
             idx++;
         }
 
