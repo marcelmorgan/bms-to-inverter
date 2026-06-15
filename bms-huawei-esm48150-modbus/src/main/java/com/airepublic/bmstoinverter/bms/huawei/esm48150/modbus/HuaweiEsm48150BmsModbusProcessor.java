@@ -33,8 +33,8 @@ import com.airepublic.bmstoinverter.protocol.modbus.ModbusUtil.RegisterCode;
  *   1/0  : pack voltage    (raw ÷ 10 → 0.1V;  e.g. 4970 = 49.70V)
  *   2/1  : rated voltage   (informational, same unit)
  *   3/2  : pack current    (signed 0.1A; positive=charge, negative=discharge)
- *   4/3  : SOH             (% × 10 → 0.1%;   e.g. 95 → 950)
- *   5/4  : SOC             (% × 10 → 0.1%;   e.g. 100 → 1000)
+ *   4/3  : SOC             (% × 10 → 0.1%;   e.g. 86 → 860)
+ *   5/4  : max charge limit (constant 100; SOH not exposed by this BMS)
  *   6/5  : temp max        (°C × 10 → 0.1°C)
  *   7/6  : temp min        (°C × 10 → 0.1°C)
  *   8-18/7-17 : zeros / status (unused)
@@ -70,10 +70,10 @@ public class HuaweiEsm48150BmsModbusProcessor extends BMS {
 
         // regs 1-7 (PDU 0-6): pack status
         pack.packVoltage = frame.getShort() / 10;    // reg 1: raw ÷ 10 → 0.1V
-        frame.getShort();                              // reg 2: rated voltage (skip)
+        frame.getShort();                              // reg 2: skip (varies, not rated voltage)
         pack.packCurrent = frame.getShort();           // reg 3: signed 0.1A
-        pack.packSOH = frame.getShort() * 10;          // reg 4: % → 0.1%
-        pack.packSOC = frame.getShort() * 10;          // reg 5: % → 0.1%
+        pack.packSOC = frame.getShort() * 10;          // reg 4: SOC % → 0.1%
+        frame.getShort();                              // reg 5: constant 100 (max charge limit), not SOH
         pack.tempMax = frame.getShort() * 10;          // reg 6: °C → 0.1°C
         pack.tempMin = frame.getShort() * 10;          // reg 7: °C → 0.1°C
         pack.tempAverage = (pack.tempMax + pack.tempMin) / 2;
