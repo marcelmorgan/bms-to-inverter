@@ -8,4 +8,12 @@ public interface IWebServerService {
 
 
     void stop();
+
+
+    default void onDataUpdated(final String dataJson) {
+    }
+
+
+    default void setStatusSupplier(final java.util.function.Supplier<String> statusSupplier) {
+    }
 }

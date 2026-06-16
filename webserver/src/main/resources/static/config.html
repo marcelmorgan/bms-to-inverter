@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="styles.css">
+<title>BMS-to-Inverter — Configure</title>
+<style>
+body { font-family: Arial, sans-serif; background: #f4f4f4; margin: 0; padding: 20px; }
+
+h1 { font-family: Arial, sans-serif; font-size: 20pt; font-style: italic; font-weight: bolder;
+     color: rgb(0,100,200); text-align: center; margin-bottom: 20px; }
+
+.card { background: white; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.12);
+        padding: 20px; margin-bottom: 20px; max-width: 900px; margin-left: auto; margin-right: auto; }
+
+.card h2 { font-size: 14pt; color: #0056b3; margin: 0 0 15px 0; border-bottom: 1px solid #eee; padding-bottom: 8px; }
+
+.formRow { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; margin-bottom: 12px; }
+
+.formGroup { display: flex; flex-direction: column; }
+.formGroup label { font-size: 10pt; color: #555; margin-bottom: 3px; }
+.formGroup input, .formGroup select {
+	height: 36px; border: 1px solid #ccc; border-radius: 4px; padding: 0 8px;
+	font-size: 12pt; min-width: 180px;
+}
+
+.bmsRow { background: #f8f9ff; border-radius: 8px; padding: 12px; margin-bottom: 10px;
+           border: 1px solid #e0e8ff; }
+
+.btn { height: 36px; padding: 0 18px; border: none; border-radius: 4px; cursor: pointer;
+       font-size: 12pt; }
+.btn-primary { background: #007bff; color: white; }
+.btn-primary:hover { background: #0056b3; }
+.btn-danger  { background: #ef4444; color: white; }
+.btn-danger:hover  { background: #dc2626; }
+.btn-secondary { background: #e2e8f0; color: #333; }
+.btn-secondary:hover { background: #cbd5e1; }
+
+#saveBtn { width: 100%; height: 44px; font-size: 14pt; margin-top: 10px; }
+
+#countdown { text-align: center; font-size: 14pt; color: #0056b3; display: none; padding: 20px; }
+
+.navBar { max-width: 900px; margin: 0 auto 15px auto; }
+.navBar a { color: #007bff; text-decoration: none; font-size: 12pt; }
+.navBar a:hover { text-decoration: underline; }
+</style>
+</head>
+<body onload="loadConfig()">
+
+<h1>BMS-to-Inverter</h1>
+
+<div class="navBar"><a href="/">&#8592; Dashboard</a></div>
+
+<div class="card">
+  <h2>BMS Configuration</h2>
+  <div class="formRow">
+    <div class="formGroup">
+      <label>Poll Interval (seconds)</label>
+      <input type="number" id="pollInterval" min="1" value="1" style="min-width:120px">
+    </div>
+  </div>
+  <div id="bmsEntries"></div>
+  <button class="btn btn-secondary" onclick="addBmsRow()">+ Add BMS</button>
+</div>
+
+<div class="card">
+  <h2>Inverter Configuration</h2>
+  <div class="formRow">
+    <div class="formGroup">
+      <label>Type</label>
+      <input type="text" id="invType" list="invTypes" placeholder="e.g. DEYE_CAN">
+      <datalist id="invTypes">
+        <option value="DEYE_CAN"><option value="GROWATT_CAN"><option value="SMA_SI_CAN">
+        <option value="SOLARK_CAN"><option value="PYLON2_RS485"><option value="NONE">
+      </datalist>
+    </div>
+    <div class="formGroup">
+      <label>Port</label>
+      <select id="invPort"></select>
+    </div>
+    <div class="formGroup">
+      <label>Baud Rate</label>
+      <input type="number" id="invBaud" value="500000" style="min-width:120px">
+    </div>
+    <div class="formGroup">
+      <label>Send Interval (s)</label>
+      <input type="number" id="invSend" min="1" value="1" style="min-width:100px">
+    </div>
+  </div>
+</div>
+
+<div style="max-width:900px; margin: 0 auto;">
+  <button id="saveBtn" class="btn btn-primary" onclick="saveConfig()">Save &amp; Restart</button>
+</div>
+
+<div id="countdown"></div>
+
+<script>
+var availablePorts = [];
+var bmsCount = 0;
+
+function loadConfig() {
+	Promise.all([
+		fetch('/api/config').then(r => r.json()),
+		fetch('/api/ports').then(r => r.json())
+	]).then(function(results) {
+		var cfg = results[0];
+		availablePorts = results[1];
+
+		document.getElementById('pollInterval').value = cfg.pollInterval || 1;
+
+		// Populate inverter port dropdowns
+		buildPortOptions('invPort', cfg.inverter && cfg.inverter.portLocator);
+		if (cfg.inverter) {
+			document.getElementById('invType').value = cfg.inverter.type || '';
+			document.getElementById('invBaud').value = cfg.inverter.baudRate || 500000;
+			document.getElementById('invSend').value = cfg.inverter.sendInterval || 1;
+		}
+
+		// Populate BMS rows
+		document.getElementById('bmsEntries').innerHTML = '';
+		bmsCount = 0;
+		var bmsList = cfg.bms || [];
+		if (bmsList.length === 0) {
+			addBmsRow();
+		} else {
+			bmsList.forEach(function(b) { addBmsRow(b); });
+		}
+	}).catch(function(e) {
+		alert('Failed to load config: ' + e);
+	});
+}
+
+function buildPortOptions(selectId, selected) {
+	var sel = document.getElementById(selectId);
+	if (!sel) return;
+	sel.innerHTML = '';
+	availablePorts.forEach(function(p) {
+		var opt = document.createElement('option');
+		opt.value = p.path;
+		opt.text = p.path + (p.resolvedTo !== p.path ? ' → ' + p.resolvedTo : '');
+		if (p.path === selected || p.resolvedTo === selected) opt.selected = true;
+		sel.appendChild(opt);
+	});
+	// Allow manual entry
+	var opt = document.createElement('option');
+	opt.value = selected || '';
+	opt.text = selected && !availablePorts.find(p => p.path === selected) ? selected + ' (manual)' : 'Enter manually…';
+	if (selected && !availablePorts.find(p => p.path === selected)) { opt.selected = true; sel.appendChild(opt); }
+}
+
+function addBmsRow(bms) {
+	bmsCount++;
+	var id = bms ? bms.id : bmsCount;
+	var div = document.createElement('div');
+	div.className = 'bmsRow';
+	div.id = 'bmsRow_' + id;
+	div.innerHTML =
+		'<div class="formRow">' +
+		'  <div class="formGroup"><label>ID</label>' +
+		'    <input type="number" id="bmsId_' + id + '" value="' + id + '" min="1" style="min-width:60px">' +
+		'  </div>' +
+		'  <div class="formGroup"><label>Type</label>' +
+		'    <input type="text" id="bmsType_' + id + '" list="bmsTypes" value="' + (bms && bms.type ? bms.type : '') + '" placeholder="e.g. PYLON_CAN">' +
+		'  </div>' +
+		'  <div class="formGroup"><label>Port</label>' +
+		'    <select id="bmsPort_' + id + '"></select>' +
+		'  </div>' +
+		'  <div class="formGroup"><label>Baud Rate</label>' +
+		'    <input type="number" id="bmsBaud_' + id + '" value="' + (bms && bms.baudRate ? bms.baudRate : 500000) + '" style="min-width:120px">' +
+		'  </div>' +
+		'  <div class="formGroup"><label>Slave Addr</label>' +
+		'    <input type="number" id="bmsAddr_' + id + '" value="' + (bms && bms.slaveAddress ? bms.slaveAddress : 0) + '" style="min-width:90px">' +
+		'  </div>' +
+		'  <div style="align-self:flex-end">' +
+		'    <button class="btn btn-danger" onclick="removeBmsRow(' + id + ')">Remove</button>' +
+		'  </div>' +
+		'</div>';
+	document.getElementById('bmsEntries').appendChild(div);
+	buildPortOptions('bmsPort_' + id, bms && bms.portLocator);
+}
+
+function removeBmsRow(id) {
+	var row = document.getElementById('bmsRow_' + id);
+	if (row) row.remove();
+}
+
+function saveConfig() {
+	var bmsList = [];
+	document.querySelectorAll('.bmsRow').forEach(function(row) {
+		var id = row.id.replace('bmsRow_', '');
+		bmsList.push({
+			id: parseInt(document.getElementById('bmsId_' + id).value) || parseInt(id),
+			type: document.getElementById('bmsType_' + id).value.trim(),
+			portLocator: document.getElementById('bmsPort_' + id).value,
+			baudRate: parseInt(document.getElementById('bmsBaud_' + id).value) || 500000,
+			slaveAddress: parseInt(document.getElementById('bmsAddr_' + id).value) || 0
+		});
+	});
+
+	var cfg = {
+		pollInterval: parseInt(document.getElementById('pollInterval').value) || 1,
+		bms: bmsList,
+		inverter: {
+			type: document.getElementById('invType').value.trim(),
+			portLocator: document.getElementById('invPort').value,
+			baudRate: parseInt(document.getElementById('invBaud').value) || 500000,
+			sendInterval: parseInt(document.getElementById('invSend').value) || 1
+		}
+	};
+
+	document.getElementById('saveBtn').disabled = true;
+
+	fetch('/api/config', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify(cfg)
+	}).then(function(r) {
+		if (!r.ok) throw new Error('HTTP ' + r.status);
+		return r.json();
+	}).then(function() {
+		startCountdown(5);
+	}).catch(function(e) {
+		alert('Failed to save: ' + e);
+		document.getElementById('saveBtn').disabled = false;
+	});
+}
+
+function startCountdown(secs) {
+	document.getElementById('saveBtn').style.display = 'none';
+	var cd = document.getElementById('countdown');
+	cd.style.display = 'block';
+	var tick = function() {
+		if (secs <= 0) {
+			cd.innerHTML = 'Restarting… <a href="/">Back to dashboard</a>';
+			setTimeout(function() { window.location.href = '/'; }, 3000);
+			return;
+		}
+		cd.textContent = 'Service restarting in ' + secs + ' second' + (secs !== 1 ? 's' : '') + '…';
+		secs--;
+		setTimeout(tick, 1000);
+	};
+	tick();
+}
+</script>
+
+<datalist id="bmsTypes">
+  <option value="PYLON_CAN"><option value="PYLON_RS485"><option value="PYLON2_RS485">
+  <option value="DALY_CAN"><option value="DALY_RS485"><option value="JK_CAN">
+  <option value="JK_RS485"><option value="SEPLOS_CAN"><option value="SEPLOS_RS485">
+  <option value="HUAWEI_CAN"><option value="HUAWEI_RS485">
+</datalist>
+
+</body>
+</html>

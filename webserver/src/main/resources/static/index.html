@@ -3,167 +3,146 @@
 <head>
 <meta http-equiv="Content-Type" content="text/html;charset=utf-8" />
 <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
-<meta http-equiv="Access-Control-Allow-Origin" content="*">
-<meta name="description" content="">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
 <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
-<link rel="manifest" href="/site.webmanifest"><link rel="stylesheet" href="styles.css">
-
+<link rel="manifest" href="/site.webmanifest">
+<link rel="stylesheet" href="styles.css">
 <title>Bms-To-Inverter</title>
+<style>
+#statusBar {
+	display: flex;
+	gap: 10px;
+	flex-wrap: wrap;
+	padding: 6px 10px;
+	background: #f0f4ff;
+	border-radius: 8px;
+	margin-bottom: 10px;
+	font-family: Arial, sans-serif;
+	font-size: 12pt;
+}
+.statusChip {
+	display: flex;
+	align-items: center;
+	gap: 5px;
+	padding: 3px 10px;
+	border-radius: 12px;
+	background: white;
+	box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+}
+.statusDot {
+	width: 10px;
+	height: 10px;
+	border-radius: 50%;
+	display: inline-block;
+}
+.statusDot.ok   { background: #22c55e; }
+.statusDot.err  { background: #ef4444; }
+.statusDot.idle { background: #94a3b8; }
+#configLink {
+	margin-left: auto;
+	font-size: 11pt;
+	color: #007bff;
+	text-decoration: none;
+	align-self: center;
+}
+#configLink:hover { text-decoration: underline; }
+</style>
 </head>
 
 <script type="text/javascript">
-	const selectedBackgroundColor = 'rgb(120, 120, 255)';
-	const selectedColor = 'white';
 	const normalMenuClass = 'bmsMenu';
 	const selectedMenuClass = 'bmsMenu-selected';
 	var selectedBMS = null;
 	var selectedBMSNo = 0;
 	var bmsData = '';
 	var alarmMessages;
+	var evtSource = null;
 	var dataURL = location.protocol + '//' + location.host + '/data';
+	var sseURL  = location.protocol + '//' + location.host + '/api/data/stream';
+	var statusURL = location.protocol + '//' + location.host + '/api/status';
 	var alarmsURL = location.protocol + '//' + location.host + '/alarmMessages';
-	
+
 	function init() {
 		fetchAsync(dataURL)
 		.then(data => {
 			bmsData = data;
-			var menu = document.getElementById('menuPanel');
-			menu.innerHTML = '<div id="bms0" class="bmsMenu" onclick="selectBMS(this)">Overview</div>';
-			
-			for (var i = 0; i < bmsData.batteryPacks.length; i++) {
-				menu.innerHTML += '<div id="bms' + (i + 1) +'" class="bmsMenu" onclick="selectBMS(this)">BMS #' + (i + 1) + '</div>';
-			}
-			
+			buildMenu();
 			selectBMS(document.getElementById('bms0'));
-			window.setInterval(requestData, 2000);
+			connectSSE();
+			refreshStatus();
+			window.setInterval(refreshStatus, 10000);
+			fetchAsync(alarmsURL).then(d => { alarmMessages = d; }).catch(() => {});
 		})
 		.catch(reason => console.log(reason.message));
 	}
-	
+
+	function buildMenu() {
+		var menu = document.getElementById('menuPanel');
+		menu.innerHTML = '<div id="bms0" class="bmsMenu" onclick="selectBMS(this)">Overview</div>';
+		for (var i = 0; i < bmsData.batteryPacks.length; i++) {
+			menu.innerHTML += '<div id="bms' + (i + 1) + '" class="bmsMenu" onclick="selectBMS(this)">BMS #' + (i + 1) + '</div>';
+		}
+	}
+
+	function connectSSE() {
+		if (evtSource) evtSource.close();
+		evtSource = new EventSource(sseURL);
+		evtSource.onmessage = function(event) {
+			try {
+				bmsData = JSON.parse(event.data);
+				refreshView();
+			} catch(e) {}
+		};
+		evtSource.onerror = function() {
+			evtSource.close();
+			setTimeout(connectSSE, 5000);
+		};
+	}
+
+	function refreshStatus() {
+		fetch(statusURL)
+		.then(r => r.json())
+		.then(status => updateStatusBar(status))
+		.catch(() => {});
+	}
+
+	function updateStatusBar(status) {
+		var bar = document.getElementById('statusBar');
+		var html = '';
+		if (status.bms) {
+			status.bms.forEach(function(b) {
+				var cls = b.connected ? 'ok' : 'err';
+				html += '<div class="statusChip"><span class="statusDot ' + cls + '"></span>BMS #' + b.id + '</div>';
+			});
+		}
+		if (status.inverter && status.inverter.type) {
+			var cls = status.inverter.connected ? 'ok' : 'err';
+			html += '<div class="statusChip"><span class="statusDot ' + cls + '"></span>Inverter</div>';
+		}
+		html += '<a id="configLink" href="/config.html">&#9881; Configure</a>';
+		bar.innerHTML = html;
+	}
+
 	async function fetchAsync(url) {
 		const response = await fetch(url);
 		const data = await response.json();
 		return data;
 	}
-	
-	function requestData() {
-		// bms data
-		fetchAsync(dataURL)
-		.then(data => {
-			bmsData = data;
-			refreshView();
 
-		})
-    	.catch(reason => console.log(reason.message));
-		
-		// alarm messages
-		fetchAsync(alarmsURL)
-		.then(data => {
-			alarmMessages = data;
-			refreshView();
-
-		})
-    	.catch(reason => console.log(reason.message));
-
-	}
-	
-	function updateOverview(element) {
-		
-		// extract overview data
-		var averageSOC = 0;
-		var averageVoltage = 0;
-		var totalCurrent = 0;
-		var chargeState = 'Idle';
-		
-		for (var i = 0; i < bmsData.batteryPacks.length; i++) {
-			var pack = bmsData.batteryPacks[i];
-			
-			totalCurrent += pack.packCurrent;
-			averageSOC += pack.packSOC;
-			averageVoltage += pack.packVoltage;
-			
-			if (pack.chargeDischargeStatus == 1) {
-				chargeState = 'Charge';
-			} else if (pack.chargeDischargeStatus == 2 && (chargeState === 'Idle' || chargeState === 'Sleep')) {
-				chargeState = 'Discharge';
-			} else if (pack.chargeDischargeStatus == 3 && chargeState === 'Idle') {
-				chargeState = 'Sleep';
-			}
-		}
-		
-		averageSOC = averageSOC / bmsData.batteryPacks.length;
-		averageVoltage = averageVoltage / bmsData.batteryPacks.length;
-		
-		
-		
-		var alarms = new Array();
-		var content= '<table>' +
-		'<tr>' +
-		'<td class="overviewDataFieldName" style="text-align:right; width: 50px">SOC</td><td class="overviewDataFieldValue">' + (averageSOC / 10).toFixed(1) + ' %</td>' +
-		'<td class="overviewDataFieldName" style="text-align:right; width: 90px">Voltage</td><td class="overviewDataFieldValue">' + (averageVoltage / 10).toFixed(1) + ' V</td>' +
-		'<td class="overviewDataFieldName" style="text-align:right; width: 90px">Current</td><td class="overviewDataFieldValue">' + (totalCurrent / 10).toFixed(1) + ' A</td>' +
-		'<td class="overviewDataFieldName" style="text-align:right">Charge-State</td><td class="overviewDataFieldValue">' + chargeState + '</td>' +
-		'</tr>' +
-		'</table><br/>';
-		
-		content += '<table>' +
-				'<tr>' +
-					'<td class="overviewDataFieldName" style="text-align: center; width: 50px">BMS</td>' +
-					'<td class="overviewDataFieldName" style="text-align: center; width: 50px">SOC</td>' +
-					'<td class="overviewDataFieldName" style="text-align: center">Voltage</td>' +
-					'<td class="overviewDataFieldName" style="text-align: center">Current</td>' +
-					'<td class="overviewDataFieldName" style="text-align: center">MinCellV</td>' +
-					'<td class="overviewDataFieldName" style="text-align: center">MaxCellV</td>' +
-					'<td class="overviewDataFieldName" style="text-align: center">CellDiff</td>' +
-				'</tr>';
-				
-			for (var i = 0; i < bmsData.batteryPacks.length; i++) {		
-				var pack = bmsData.batteryPacks[i];
-				content += '<tr>' +
-					'<td class="overviewDataFieldValue" style="text-align: center">' + (i + 1) + '</td>' +
-					'<td class="overviewDataFieldValue">' + (pack.packSOC / 10).toFixed(1) + ' %</td>' +
-					'<td class="overviewDataFieldValue">' + (pack.packVoltage / 10).toFixed(1) + ' V</td>' +
-					'<td class="overviewDataFieldValue">' + (pack.packCurrent / 10).toFixed(1) + ' A</td>' +
-					'<td class="overviewDataFieldValue">' + (pack.minCellmV / 1000).toFixed(3) + ' V (#' + pack.minCellVNum.toString().padStart(2, '0') + ')</td>' +
-					'<td class="overviewDataFieldValue">' + (pack.maxCellmV / 1000).toFixed(3) + ' V (#' + pack.maxCellVNum.toString().padStart(2, '0') + ')</td>' +
-					'<td class="overviewDataFieldValue">' + ((pack.maxCellmV - pack.minCellmV) / 1000).toFixed(3) + ' V</td>' +
-				'</tr>';
-				
-				var packAlarms = getAlarmState(i);
-				
-				// add bms no to alarms
-				for (var x = 0; x < packAlarms.length; x++) {
-					packAlarms[x] = 'BMS #' + (i + 1) + ' - ' + packAlarms[x];
-					
-				}
-				
-				alarms = alarms.concat(packAlarms);
-			}
-		content += '</table>';
-		
-		document.getElementById("overviewPanel").innerHTML = content;
-		updateAlarms(alarms);
-	}
-	
 	function selectBMS(element) {
 		if (element != selectedBMS) {
 			if (selectedBMS != null) {
-				selectedBMS.className= normalMenuClass;
+				selectedBMS.className = normalMenuClass;
 			}
-
-			//element.style.backgroundColor = selectedBackgroundColor;
-			//element.style.color= selectedColor;
-			element.className= selectedMenuClass;
+			element.className = selectedMenuClass;
 			selectedBMS = element;
 		}
-		
 		selectedBMSNo = selectedBMS.id.substring(3) - 1;
 	}
-	
+
 	function refreshView() {
 		document.getElementById("overviewPanel").innerHTML = '';
 		document.getElementById("bmsPanel").innerHTML = '';
@@ -176,11 +155,79 @@
 			updateBMS();
 		}
 	}
-	
+
+	function updateOverview() {
+		var averageSOC = 0;
+		var averageVoltage = 0;
+		var totalCurrent = 0;
+		var chargeState = 'Idle';
+
+		for (var i = 0; i < bmsData.batteryPacks.length; i++) {
+			var pack = bmsData.batteryPacks[i];
+			totalCurrent += pack.packCurrent;
+			averageSOC += pack.packSOC;
+			averageVoltage += pack.packVoltage;
+			if (pack.chargeDischargeStatus == 1) {
+				chargeState = 'Charge';
+			} else if (pack.chargeDischargeStatus == 2 && (chargeState === 'Idle' || chargeState === 'Sleep')) {
+				chargeState = 'Discharge';
+			} else if (pack.chargeDischargeStatus == 3 && chargeState === 'Idle') {
+				chargeState = 'Sleep';
+			}
+		}
+
+		averageSOC = averageSOC / bmsData.batteryPacks.length;
+		averageVoltage = averageVoltage / bmsData.batteryPacks.length;
+
+		var alarms = new Array();
+		var content = '<table>' +
+			'<tr>' +
+			'<td class="overviewDataFieldName" style="text-align:right; width: 50px">SOC</td><td class="overviewDataFieldValue">' + (averageSOC / 10).toFixed(1) + ' %</td>' +
+			'<td class="overviewDataFieldName" style="text-align:right; width: 90px">Voltage</td><td class="overviewDataFieldValue">' + (averageVoltage / 10).toFixed(1) + ' V</td>' +
+			'<td class="overviewDataFieldName" style="text-align:right; width: 90px">Current</td><td class="overviewDataFieldValue">' + (totalCurrent / 10).toFixed(1) + ' A</td>' +
+			'<td class="overviewDataFieldName" style="text-align:right">Charge-State</td><td class="overviewDataFieldValue">' + chargeState + '</td>' +
+			'</tr>' +
+			'</table><br/>';
+
+		content += '<table>' +
+			'<tr>' +
+				'<td class="overviewDataFieldName" style="text-align: center; width: 50px">BMS</td>' +
+				'<td class="overviewDataFieldName" style="text-align: center; width: 50px">SOC</td>' +
+				'<td class="overviewDataFieldName" style="text-align: center">Voltage</td>' +
+				'<td class="overviewDataFieldName" style="text-align: center">Current</td>' +
+				'<td class="overviewDataFieldName" style="text-align: center">MinCellV</td>' +
+				'<td class="overviewDataFieldName" style="text-align: center">MaxCellV</td>' +
+				'<td class="overviewDataFieldName" style="text-align: center">CellDiff</td>' +
+			'</tr>';
+
+		for (var i = 0; i < bmsData.batteryPacks.length; i++) {
+			var pack = bmsData.batteryPacks[i];
+			content += '<tr>' +
+				'<td class="overviewDataFieldValue" style="text-align: center">' + (i + 1) + '</td>' +
+				'<td class="overviewDataFieldValue">' + (pack.packSOC / 10).toFixed(1) + ' %</td>' +
+				'<td class="overviewDataFieldValue">' + (pack.packVoltage / 10).toFixed(1) + ' V</td>' +
+				'<td class="overviewDataFieldValue">' + (pack.packCurrent / 10).toFixed(1) + ' A</td>' +
+				'<td class="overviewDataFieldValue">' + (pack.minCellmV / 1000).toFixed(3) + ' V (#' + pack.minCellVNum.toString().padStart(2, '0') + ')</td>' +
+				'<td class="overviewDataFieldValue">' + (pack.maxCellmV / 1000).toFixed(3) + ' V (#' + pack.maxCellVNum.toString().padStart(2, '0') + ')</td>' +
+				'<td class="overviewDataFieldValue">' + ((pack.maxCellmV - pack.minCellmV) / 1000).toFixed(3) + ' V</td>' +
+			'</tr>';
+
+			var packAlarms = getAlarmState(i);
+			for (var x = 0; x < packAlarms.length; x++) {
+				packAlarms[x] = 'BMS #' + (i + 1) + ' - ' + packAlarms[x];
+			}
+			alarms = alarms.concat(packAlarms);
+		}
+		content += '</table>';
+
+		document.getElementById("overviewPanel").innerHTML = content;
+		updateAlarms(alarms);
+	}
+
 	function updateBMS() {
 		var bmsNo = selectedBMSNo;
 		var chargeState = 'Idle';
-		
+
 		switch (bmsData.batteryPacks[bmsNo].chargeDischargeStatus) {
 			case 0: chargeState = 'Idle'; break;
 			case 1: chargeState = 'Charge'; break;
@@ -188,80 +235,74 @@
 			case 3: chargeState = 'Sleep'; break;
 			default: chargeState = 'Idle';
 		}
-		
-		//bms panel
-		document.getElementById('bmsPanel').innerHTML = 
+
+		document.getElementById('bmsPanel').innerHTML =
 		'<table>' +
 				'<tr>' +
-					'<td class="bmsDataFieldName">Pack-Voltage</td><td id="packVoltageValue" class="bmsDataFieldValue">' + (bmsData.batteryPacks[bmsNo].packVoltage / 10).toFixed(1) + ' V</td>' +
-					'<td class="bmsDataFieldName">Pack-Current</td><td id="packCurrentValue" class="bmsDataFieldValue">' + (bmsData.batteryPacks[bmsNo].packCurrent / 10).toFixed(1) + ' A</td>' +
-					'<td class="bmsDataFieldName">Pack-SOC</td><td id="packSOCValue" class="bmsDataFieldValue">' + (bmsData.batteryPacks[bmsNo].packSOC / 10).toFixed(1) + ' %</td>' +
+					'<td class="bmsDataFieldName">Pack-Voltage</td><td class="bmsDataFieldValue">' + (bmsData.batteryPacks[bmsNo].packVoltage / 10).toFixed(1) + ' V</td>' +
+					'<td class="bmsDataFieldName">Pack-Current</td><td class="bmsDataFieldValue">' + (bmsData.batteryPacks[bmsNo].packCurrent / 10).toFixed(1) + ' A</td>' +
+					'<td class="bmsDataFieldName">Pack-SOC</td><td class="bmsDataFieldValue">' + (bmsData.batteryPacks[bmsNo].packSOC / 10).toFixed(1) + ' %</td>' +
 				'</tr>' +
 				'<tr>' +
-					'<td class="bmsDataFieldName">Min. Cell Voltage</td><td id="minCellVoltageValue" class="bmsDataFieldValue">' + (bmsData.batteryPacks[bmsNo].minCellmV / 1000).toFixed(3) + ' V (#' + bmsData.batteryPacks[bmsNo].minCellVNum.toString().padStart(2, '0') + ')</td>' +
-					'<td class="bmsDataFieldName">Max. Cell Voltage</td><td id="maxCellVoltageValue" class="bmsDataFieldValue">' + (bmsData.batteryPacks[bmsNo].maxCellmV / 1000).toFixed(3) + ' V (#' + bmsData.batteryPacks[bmsNo].maxCellVNum.toString().padStart(2, '0') + ')</td>' +
-					'<td class="bmsDataFieldName">Cell Diff.</td><td id="cellDiffValue" class="bmsDataFieldValue">' + ((bmsData.batteryPacks[bmsNo].maxCellmV - bmsData.batteryPacks[bmsNo].minCellmV) / 1000).toFixed(3) + ' V</td>' +
+					'<td class="bmsDataFieldName">Min. Cell Voltage</td><td class="bmsDataFieldValue">' + (bmsData.batteryPacks[bmsNo].minCellmV / 1000).toFixed(3) + ' V (#' + bmsData.batteryPacks[bmsNo].minCellVNum.toString().padStart(2, '0') + ')</td>' +
+					'<td class="bmsDataFieldName">Max. Cell Voltage</td><td class="bmsDataFieldValue">' + (bmsData.batteryPacks[bmsNo].maxCellmV / 1000).toFixed(3) + ' V (#' + bmsData.batteryPacks[bmsNo].maxCellVNum.toString().padStart(2, '0') + ')</td>' +
+					'<td class="bmsDataFieldName">Cell Diff.</td><td class="bmsDataFieldValue">' + ((bmsData.batteryPacks[bmsNo].maxCellmV - bmsData.batteryPacks[bmsNo].minCellmV) / 1000).toFixed(3) + ' V</td>' +
 				'</tr>' +
 				'<tr>' +
-					'<td class="bmsDataFieldName">Dis-/Charge Status</td><td id="chargeDischargeStatusValue" class="bmsDataFieldValue">' + chargeState + '</td>' +
-					'<td class="bmsDataFieldName">Charge MOS</td><td id="chargeMOSStateValue" class="bmsDataFieldValue">' + (bmsData.batteryPacks[bmsNo].chargeMOSState ? 'ON' : 'OFF') + '</td>' +
-					'<td class="bmsDataFieldName">Discharge MOS</td><td id="dischargeMOSStateValue" class="bmsDataFieldValue">' + (bmsData.batteryPacks[bmsNo].dischargeMOSState ? 'ON' : 'OFF') + '</td>' +
+					'<td class="bmsDataFieldName">Dis-/Charge Status</td><td class="bmsDataFieldValue">' + chargeState + '</td>' +
+					'<td class="bmsDataFieldName">Charge MOS</td><td class="bmsDataFieldValue">' + (bmsData.batteryPacks[bmsNo].chargeMOSState ? 'ON' : 'OFF') + '</td>' +
+					'<td class="bmsDataFieldName">Discharge MOS</td><td class="bmsDataFieldValue">' + (bmsData.batteryPacks[bmsNo].dischargeMOSState ? 'ON' : 'OFF') + '</td>' +
 				'</tr>' +
 				'</table>';
-		
-		//the cell voltages and status
+
 		var cellPanel = document.getElementById('cellPanel');
 		var cellTable = '<table class="table"><thead class="tableHeader"><td class="tableHeaderCell">Cell No.</td><td class="tableHeaderCell">Cell Voltage</td><td class="tableHeaderCell">Balancing</td></thead>';
-		
+
 		for (var i = 0; i < bmsData.batteryPacks[bmsNo].numberOfCells; i++) {
-			cellTable += '<tr><td id="cell' + (i + 1) +'" class="bmsDataFieldName"> Cell #' + (i + 1) + '</td>';
-			cellTable += '<td class="bmsDataFieldValue">' + (bmsData.batteryPacks[bmsNo].cellVmV[i] /1000).toFixed(3) + ' V</td>';
-			cellTable += '<td class="bmsDataFieldValue">' + (bmsData.batteryPacks[bmsNo].cellBalanceState[i] ? 'ON' : 'OFF') +'</td></tr>';
+			cellTable += '<tr><td class="bmsDataFieldName"> Cell #' + (i + 1) + '</td>';
+			cellTable += '<td class="bmsDataFieldValue">' + (bmsData.batteryPacks[bmsNo].cellVmV[i] / 1000).toFixed(3) + ' V</td>';
+			cellTable += '<td class="bmsDataFieldValue">' + (bmsData.batteryPacks[bmsNo].cellBalanceState[i] ? 'ON' : 'OFF') + '</td></tr>';
 		}
 
-		cellTable += "</table>"
+		cellTable += "</table>";
 		cellPanel.innerHTML = cellTable;
-		
+
 		var alarms = getAlarmState(bmsNo);
 		updateAlarms(alarms);
 	}
-	
+
 	function updateAlarms(alarms) {
-		//alarms
 		var alarmsPanel = document.getElementById('alarmPanel');
 		var alarmsTable = '<table class="table" style="width:100%"><thead class="tableHeader"><td class="tableHeaderCell">Alarms</td></thead>';
-		
+
 		for (var i = 0; i < alarms.length; i++) {
 			alarmsTable += '<tr><td class="alarmField">' + alarms[i] + '</td></tr>';
 		}
-		
-		alarmsTable += "</table>"
-		alarmPanel.innerHTML = alarmsTable;
 
+		alarmsTable += "</table>";
+		alarmPanel.innerHTML = alarmsTable;
 	}
-	
+
 	function getAlarmState(bmsNo) {
 		var alarms = new Array();
 		var idx = 0;
 		var map = new Map(Object.entries(bmsData.batteryPacks[bmsNo].alarms));
-		
+
 		for (let [key, value] of map) {
-			
 			if (value != 'NONE') {
 				alarms[idx++] = value + ': ' + key;
 			}
 		}
-		
+
 		return alarms;
 	}
-	
-	
 </script>
 
 <body onload="init()">
 	<div id="mainPanel" class="mainPanel">
 		<div id="headerPanel" class="headerPanel">BMS-to-Inverter</div>
-		<div id="menuPanel" ></div>
+		<div id="statusBar"></div>
+		<div id="menuPanel"></div>
 		<div id="viewPanel">
 			<div id="overviewPanel"></div>
 			<div id="bmsPanel"></div>
