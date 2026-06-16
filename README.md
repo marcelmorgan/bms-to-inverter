@@ -65,16 +65,20 @@ This section documents a working configuration for **6× Huawei ESM-48150B1** ba
 
 | Component | Connection |
 |-----------|-----------|
-| Huawei ESM-48150B1 × N | USB-to-RS485 adapter → `/dev/ttyUSB1` (all units on one RS485 bus) |
-| Deye SUN-8K BMS port | USB-to-RS485 adapter → `/dev/ttyUSB2` |
+| Huawei ESM-48150B1 × N | USB-to-RS485 adapter → BMS RS485 bus |
+| Deye SUN-8K BMS port | USB-to-RS485 adapter → Deye BMS RS485 port |
 
 Connect the RS485 A/B terminals of all ESM-48150B1 units in a daisy-chain to one adapter. Wire the Deye `RS485+`/`RS485−` BMS terminals to a second adapter. Set the Deye inverter BMS protocol to **Pylontech (Ho01/Ho04)** in the inverter settings menu.
 
-Find your USB device names after plugging in both adapters:
+**Use persistent device paths** — `/dev/ttyUSBN` numbers change when adapters are replugged. Linux creates stable symlinks automatically for any USB serial adapter that has a unique serial number (FTDI chips always do):
+
 ```bash
-ls /dev/ttyUSB*
-# or check which appeared last: dmesg | tail -20
+ls /dev/serial/by-id/
+# usb-FTDI_FT232R_USB_UART_A10L900J-if00-port0 -> ../../ttyUSB1
+# usb-FTDI_FT232R_USB_UART_BG00U13S-if00-port0 -> ../../ttyUSB3
 ```
+
+Use the full `/dev/serial/by-id/...` path in `config.properties` — this is also how Solar Assistant identifies serial devices.
 
 ### Prerequisites
 
