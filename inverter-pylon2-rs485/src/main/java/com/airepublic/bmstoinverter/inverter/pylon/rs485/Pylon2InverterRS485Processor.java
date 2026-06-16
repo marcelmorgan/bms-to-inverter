@@ -187,9 +187,9 @@ public class Pylon2InverterRS485Processor extends Inverter {
      * Register map (Deye SUN-8K Pylontech mode — empirically confirmed):
      * 0x1000: Pack voltage (0.01V per bit)          — confirmed: matches displayed value
      * 0x1001: Pack current (0.1A, signed)
-     * 0x1002: SOC (0.1%)                             — e.g. 960 = 96.0%
+     * 0x1002: SOC (integer %)                         — 0–100; Deye clips values > 100 to 100%
      * 0x1003: Temperature (0.1°C per bit)            — confirmed: SOH=100 there showed as 10°C
-     * 0x1004: SOH (0.1%)                             — e.g. 1000 = 100.0%
+     * 0x1004: SOH (integer %)                         — 0–100
      * 0x1005: Status flags (bit0=charge, bit1=discharge, bit2=force)  — confirmed: value shown as hex in fault col 1 (3="3|0|0")
      * 0x1006: Alarm flags 1                          — confirmed: cell mV here showed as fault code
      * 0x1007: Alarm flags 2
@@ -217,9 +217,9 @@ public class Pylon2InverterRS485Processor extends Inverter {
         frame[1] = 0x04;
         frame[2] = (byte) byteCount;
 
-        // packSOC/packSOH stored internally as 0.1% units (e.g. 960 = 96.0%); Pylontech protocol uses same units
-        final int soc = pack.packSOC;
-        final int soh = pack.packSOH > 0 ? pack.packSOH : 1000; // 0.1% units; 1000 = 100.0%
+        // packSOC/packSOH stored internally as 0.1% units (e.g. 960 = 96.0%); Deye expects integer 0-100
+        final int soc = pack.packSOC / 10;
+        final int soh = pack.packSOH > 0 ? pack.packSOH / 10 : 100;
 
         final int tempAvg = (pack.tempMax + pack.tempMin) / 2;
 
@@ -263,7 +263,7 @@ public class Pylon2InverterRS485Processor extends Inverter {
         for (final byte b : frame) hex.append(String.format("%02X ", b));
         LOG.info("Deye BMS response addr=0x{}: SOC={}% voltage={}V current={}A temp={}°C | frame={}",
                 Integer.toHexString(address & 0xFF),
-                soc / 10.0, pack.packVoltage / 10.0, pack.packCurrent / 10.0, tempAvg / 10.0, hex);
+                soc, pack.packVoltage / 10.0, pack.packCurrent / 10.0, tempAvg / 10.0, hex);
 
         appendCRC(frame);
         return ByteBuffer.wrap(frame);
