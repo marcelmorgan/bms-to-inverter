@@ -81,6 +81,14 @@ public class HuaweiEsm48150BmsModbusProcessor extends BMS {
         pack.tempMin = (short) frame.getInt() * 10;         // reg 7: °C → 0.1°C
         pack.tempAverage = (pack.tempMax + pack.tempMin) / 2;
 
+        // ESM-48150B1 static limits (not exposed via Modbus)
+        pack.ratedCapacitymAh = 150000;         // 150Ah
+        pack.maxPackVoltageLimit = 576;          // 57.6V max charge voltage (0.1V)
+        pack.minPackVoltageLimit = 400;          // 40.0V min discharge voltage (0.1V)
+        pack.maxPackChargeCurrent = 750;         // 75A max charge current (0.1A)
+        pack.maxPackDischargeCurrent = -1500;    // 150A max discharge current (0.1A, negative)
+        pack.packSOH = 1000;                     // 100% SOH - not exposed by this BMS
+
         // regs 8-18 (PDU 7-17): skip unused
         for (int i = 0; i < 11; i++) {
             frame.getInt();

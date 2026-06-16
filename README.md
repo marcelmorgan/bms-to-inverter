@@ -57,6 +57,172 @@ See the Wiki page [How to use](https://github.com/ai-republic/bms-to-inverter/wi
 
 ----------
 
+## Setup: Huawei ESM-48150B1 + Deye SUN-8K (RS485)
+
+This section documents a working configuration for **6× Huawei ESM-48150B1** battery packs (Modbus RTU via RS485) with a **Deye SUN-8K-SG01LP1** inverter (Pylontech/Ho04 BMS port, RS485).
+
+### Hardware
+
+| Component | Connection |
+|-----------|-----------|
+| Huawei ESM-48150B1 × N | USB-to-RS485 adapter → `/dev/ttyUSB1` (all units on one RS485 bus) |
+| Deye SUN-8K BMS port | USB-to-RS485 adapter → `/dev/ttyUSB2` |
+
+Connect the RS485 A/B terminals of all ESM-48150B1 units in a daisy-chain to one adapter. Wire the Deye `RS485+`/`RS485−` BMS terminals to a second adapter. Set the Deye inverter BMS protocol to **Pylontech (Ho01/Ho04)** in the inverter settings menu.
+
+Find your USB device names after plugging in both adapters:
+```bash
+ls /dev/ttyUSB*
+# or check which appeared last: dmesg | tail -20
+```
+
+### Prerequisites
+
+- **Java 8+** (64-bit JDK recommended on RPi 4+): `java -version`
+- **Maven 3.8+** (to build from source): `mvn -version`
+- Both adapters must be plugged in before the service starts
+
+### Build
+
+```bash
+git clone https://github.com/marcelmorgan/bms-to-inverter.git
+cd bms-to-inverter
+mvn package -DskipTests
+```
+
+This produces `bms-to-inverter-main/target/bms-to-inverter.zip` containing all JARs.
+
+### Deploy
+
+```bash
+DEPLOY=~/bms   # change to any path you prefer
+mkdir -p $DEPLOY/{config,logs}
+unzip bms-to-inverter-main/target/bms-to-inverter.zip -d $DEPLOY
+```
+
+Create `$DEPLOY/start.sh`:
+```bash
+cat > $DEPLOY/start.sh << 'EOF'
+#!/bin/bash
+java -DconfigFile=config/config.properties \
+     -Dlog4j2.configurationFile=file:config/log4j2.xml \
+     -jar lib/bms-to-inverter-main-0.0.1-SNAPSHOT.jar
+EOF
+chmod +x $DEPLOY/start.sh
+```
+
+### Configuration
+
+Create `$DEPLOY/config/config.properties` — adjust slave IDs and port names for your setup:
+
+```properties
+bms.pollInterval=5
+
+# One entry per ESM-48150B1 unit. Slave addresses are set on the unit (default 1–6).
+# Check the address of each unit with: mbpoll -a 1 -b 9600 -t 4:hex -r 0x1000 -c 1 /dev/ttyUSB1
+bms.1.type=HUAWEI_ESM48150_MODBUS
+bms.1.id=1              # Modbus slave address of first unit (0xD9 = 217 decimal if using Huawei defaults)
+bms.1.portLocator=/dev/ttyUSB1
+bms.1.baudRate=9600
+bms.1.delayAfterNoBytes=200
+
+# Repeat bms.2 through bms.N for each additional unit, changing .id for each slave address
+# bms.2.type=HUAWEI_ESM48150_MODBUS
+# bms.2.id=2
+# bms.2.portLocator=/dev/ttyUSB1
+# bms.2.baudRate=9600
+# bms.2.delayAfterNoBytes=200
+
+inverter.type=PYLON2_RS485
+inverter.portLocator=/dev/ttyUSB2
+inverter.baudRate=9600
+inverter.sendInterval=1
+```
+
+> **Slave addresses**: The ESM-48150B1 units ship with factory addresses. In this setup the six units use addresses 214–219 (0xD6–0xDB). Yours may differ. Use `mbpoll` or a Modbus scanner to confirm each unit's address before configuring.
+
+Create `$DEPLOY/config/log4j2.xml` (adjust log levels as needed):
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<Configuration>
+  <Properties>
+    <Property name="name">BMS-to-Inverter</Property>
+    <Property name="pattern">%d{yyyy-MM-dd HH:mm:ss.SSS} | %-5p | %-20C:%-5L | %msg%n</Property>
+  </Properties>
+  <Appenders>
+    <Console name="Console" target="SYSTEM_OUT">
+      <PatternLayout pattern="${pattern}"/>
+    </Console>
+    <RollingFile name="RollingFile" fileName="logs/${name}.log"
+        filePattern="logs/$${date:yyyy-MM}/${name}-%d{yyyy-MM-dd}-%i.log.gz">
+      <PatternLayout><pattern>${pattern}</pattern></PatternLayout>
+      <Policies>
+        <TimeBasedTriggeringPolicy/>
+        <SizeBasedTriggeringPolicy size="100 MB"/>
+      </Policies>
+    </RollingFile>
+  </Appenders>
+  <Loggers>
+    <Logger name="org.jboss.weld" level="error" additivity="false">
+      <AppenderRef ref="Console"/><AppenderRef ref="RollingFile"/>
+    </Logger>
+    <Root level="info">
+      <AppenderRef ref="Console"/><AppenderRef ref="RollingFile"/>
+    </Root>
+  </Loggers>
+</Configuration>
+```
+
+### Run manually
+
+```bash
+cd ~/bms
+./start.sh
+```
+
+Watch the log output — you should see `Received BMS data` lines for each pack within a few seconds. The Deye BMS detail screen should update within 30 seconds.
+
+### Run as a systemd service (auto-start on boot)
+
+Copy the service wrapper from the repo:
+```bash
+cp bmsservice.sh ~/bms/
+chmod +x ~/bms/bmsservice.sh
+```
+
+Edit `~/bms/bmsservice.sh` and replace every occurrence of `~/bms-to-inverter` with `~/bms` (or whatever `$DEPLOY` path you chose).
+
+Create the service unit:
+```bash
+sudo tee /etc/systemd/system/bms.service << EOF
+[Unit]
+Description=BMS to Inverter
+After=multi-user.target
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=3
+ExecStop=runuser -l $USER -c "echo stop > ~/bms/stop"
+ExecStart=runuser -l $USER -c "~/bms/bmsservice.sh -r"
+
+[Install]
+WantedBy=multi-user.target
+EOF
+```
+
+Enable and start:
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now bms.service
+sudo systemctl status bms.service
+```
+
+Logs are written to `~/bms/logs/` and also available via `journalctl -u bms.service -f`.
+
+----------
+
 ## Other Notes
 **DISCLAIMER** I do not take _any_ responsibility for _any_ kind of damage or injury that might be caused by using this software. Use at your own risk.
 
