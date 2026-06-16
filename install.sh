@@ -87,16 +87,10 @@ if [[ ! -f "$CONFIG_DIR/config.properties" ]]; then
     fi
 fi
 
-if [[ ! -f "$CONFIG_DIR/log4j2.xml" ]]; then
-    OLD_LOG4J="/home/$SERVICE_USER/bms/config/log4j2.xml"
-    if [[ -f "$OLD_LOG4J" ]]; then
-        echo "Migrating log4j2.xml from $OLD_LOG4J"
-        cp "$OLD_LOG4J" "$CONFIG_DIR/log4j2.xml"
-    else
-        cp "$SCRIPT_DIR/bms-to-inverter-main/src/main/resources/log4j2.xml" \
-           "$CONFIG_DIR/log4j2.xml"
-    fi
-fi
+# log4j2.xml is always replaced — it controls log verbosity and we want
+# the console-only/info-level default; logs go to journald via systemd stdout.
+cp "$SCRIPT_DIR/bms-to-inverter-main/src/main/resources/log4j2.xml" \
+   "$CONFIG_DIR/log4j2.xml"
 
 # ── 8. Ownership ──────────────────────────────────────────────────────────────
 chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR" "$CONFIG_DIR"
