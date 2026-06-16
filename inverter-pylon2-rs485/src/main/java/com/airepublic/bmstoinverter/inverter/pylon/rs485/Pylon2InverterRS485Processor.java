@@ -440,27 +440,25 @@ public class Pylon2InverterRS485Processor extends Inverter {
     /**
      * Builds a Modbus RTU Read Input Registers response with 23 registers at 0x1000.
      *
-     * Register map (Deye SUN-8K Pylontech mode — empirically confirmed):
-     * 0x1000: Pack voltage (0.01V)    confirmed matches display
-     * 0x1001: Pack current (0.1A signed)
-     * 0x1002: SOC (integer %)         0-100
-     * 0x1003: Temperature (0.1°C)     confirmed
-     * 0x1004: SOH (integer %)
-     * 0x1005: Status flags            confirmed drives fault col 1
-     * 0x1006: Alarm flags 1
-     * 0x1007: Alarm flags 2
-     * 0x1008: Max charge voltage (0.01V)
-     * 0x1009: Min discharge voltage (0.01V)
-     * 0x100A: Max charge current (0.1A)
-     * 0x100B: Max discharge current (0.1A)
-     * 0x100C-0x100F: Warning/fault flags
-     * 0x1010: Max cell voltage (mV)
-     * 0x1011: Min cell voltage (mV)
-     * 0x1012: Battery unit count
-     * 0x1013: Cells per unit
-     * 0x1014: Max cell temp (0.1°C)
-     * 0x1015: Min cell temp (0.1°C)
-     * 0x1016: Cycle count
+     * Official Deye Ho01/Ho04 BMS RS485 register map:
+     * 0x1000: Pack voltage            UINT16, 10mV/bit
+     * 0x1001: Pack current            INT16,  10mA/bit (signed)
+     * 0x1002: Remaining capacity      UINT16, 10mAh/bit
+     * 0x1003: Avg cell temperature    INT16,  0.1°C/bit
+     * 0x1004: Environment temperature INT16,  0.1°C/bit
+     * 0x1005: Warning flags           HEX bit
+     * 0x1006: Protection flags        HEX bit
+     * 0x1007: Fault/status flags      HEX bit
+     * 0x1008: SOC                     UINT16, 0.1%/bit  (0–1000 = 0–100.0%)
+     * 0x1009: SOH                     UINT16, 0.1%/bit
+     * 0x100A: Full charged capacity   UINT16, 10mAh/bit
+     * 0x100B: Cycle count             UINT16, cycles
+     * 0x100C: Max charge current      UINT16, 10mA/bit
+     * 0x100D: Max cell voltage        UINT16, mV/bit
+     * 0x100E: Min cell voltage        UINT16, mV/bit
+     * 0x100F: Max charge voltage      UINT16, mV/bit
+     * 0x1010: Min discharge voltage   UINT16, mV/bit
+     * 0x1011–0x1016: reserved/unknown (zeroed)
      */
     private ByteBuffer createBatteryDataResponse(final byte address, final BatteryPack pack) {
         final int byteCount = REG_COUNT * 2;
@@ -470,52 +468,61 @@ public class Pylon2InverterRS485Processor extends Inverter {
         frame[1] = 0x04;
         frame[2] = (byte) byteCount;
 
-        // packSOC/packSOH in 0.1% units internally; Deye Modbus register expects integer 0-100
-        final int soc = pack.packSOC / 10;
-        final int soh = pack.packSOH > 0 ? pack.packSOH / 10 : 100;
-        final int tempAvg = (pack.tempMax + pack.tempMin) / 2;
+        // SOC and SOH in 0.1% units (packSOC/packSOH already stored in 0.1%)
+        final int soc = pack.packSOC > 0 ? pack.packSOC : 0;
+        final int soh = pack.packSOH > 0 ? pack.packSOH : 1000;
 
-        int status = 0;
-        if (pack.chargeMOSState) status |= 0x01;
-        if (pack.dischargeMOSState) status |= 0x02;
-        if (pack.forceCharge) status |= 0x04;
+        // Temperature: use stored average, fall back to midpoint of max/min
+        final int tempAvg = pack.tempAverage != 0 ? pack.tempAverage : (pack.tempMax + pack.tempMin) / 2;
 
-        // maxPackVoltageLimit in 0.1V; register 0x1008 expects 0.01V → ×10
-        final int maxChargeV    = pack.maxPackVoltageLimit    > 0 ? pack.maxPackVoltageLimit    * 10 : 5760;
-        final int minDischargeV = pack.minPackVoltageLimit    > 0 ? pack.minPackVoltageLimit    * 10 : 4000;
-        final int maxChargeCurr = pack.maxPackChargeCurrent   > 0 ? pack.maxPackChargeCurrent        : 750;
-        final int maxDischgCurr = pack.maxPackDischargeCurrent > 0 ? pack.maxPackDischargeCurrent    : 1500;
+        // Remaining capacity: mAh → 10mAh
+        final int remainingCap = pack.remainingCapacitymAh / 10;
+
+        // Full rated capacity: mAh → 10mAh
+        final int ratedCap = pack.ratedCapacitymAh > 0 ? pack.ratedCapacitymAh / 10 : 15000;
+
+        // Current: 0.1A → 10mA (×10)
+        final int current = pack.packCurrent * 10;
+
+        // Current limits: 0.1A → 10mA (×10)
+        final int maxChargeCurr  = pack.maxPackChargeCurrent    > 0 ? pack.maxPackChargeCurrent    * 10 : 7500;
+        final int maxDischgCurr  = pack.maxPackDischargeCurrent > 0 ? pack.maxPackDischargeCurrent * 10 : 15000;
+
+        // Voltage limits: 0.1V → mV (×100)
+        final int maxChargeV     = pack.maxPackVoltageLimit > 0 ? pack.maxPackVoltageLimit * 100 : 57600;
+        final int minDischargeV  = pack.minPackVoltageLimit > 0 ? pack.minPackVoltageLimit * 100 : 40000;
 
         int offset = 3;
-        offset = putShort(frame, offset, pack.packVoltage * 10);
-        offset = putShort(frame, offset, pack.packCurrent);
-        offset = putShort(frame, offset, soc);
-        offset = putShort(frame, offset, tempAvg);
-        offset = putShort(frame, offset, soh);
-        offset = putShort(frame, offset, status);
-        offset = putShort(frame, offset, 0);
-        offset = putShort(frame, offset, 0);
-        offset = putShort(frame, offset, maxChargeV);
-        offset = putShort(frame, offset, minDischargeV);
-        offset = putShort(frame, offset, maxChargeCurr);
-        offset = putShort(frame, offset, maxDischgCurr);
-        offset = putShort(frame, offset, 0);
-        offset = putShort(frame, offset, 0);
-        offset = putShort(frame, offset, 0);
-        offset = putShort(frame, offset, 0);
-        offset = putShort(frame, offset, pack.maxCellmV);
-        offset = putShort(frame, offset, pack.minCellmV);
-        offset = putShort(frame, offset, 1);
-        offset = putShort(frame, offset, pack.numberOfCells);
-        offset = putShort(frame, offset, pack.tempMax);
-        offset = putShort(frame, offset, pack.tempMin);
-        putShort(frame, offset, pack.bmsCycles);
+        offset = putShort(frame, offset, pack.packVoltage * 10);  // 0x1000: voltage (10mV)
+        offset = putShort(frame, offset, current);                 // 0x1001: current (10mA, signed)
+        offset = putShort(frame, offset, remainingCap);           // 0x1002: remaining capacity (10mAh)
+        offset = putShort(frame, offset, tempAvg);                // 0x1003: avg cell temp (0.1°C)
+        offset = putShort(frame, offset, tempAvg);                // 0x1004: env temp (0.1°C)
+        offset = putShort(frame, offset, 0);                      // 0x1005: warning flags
+        offset = putShort(frame, offset, 0);                      // 0x1006: protection flags
+        offset = putShort(frame, offset, 0);                      // 0x1007: fault/status flags
+        offset = putShort(frame, offset, soc);                    // 0x1008: SOC (0.1%)
+        offset = putShort(frame, offset, soh);                    // 0x1009: SOH (0.1%)
+        offset = putShort(frame, offset, ratedCap);               // 0x100A: full charged capacity (10mAh)
+        offset = putShort(frame, offset, pack.bmsCycles);         // 0x100B: cycle count
+        offset = putShort(frame, offset, maxChargeCurr);          // 0x100C: max charge current (10mA)
+        offset = putShort(frame, offset, pack.maxCellmV);         // 0x100D: max cell voltage (mV)
+        offset = putShort(frame, offset, pack.minCellmV);         // 0x100E: min cell voltage (mV)
+        offset = putShort(frame, offset, maxChargeV);             // 0x100F: max charge voltage (mV)
+        offset = putShort(frame, offset, minDischargeV);          // 0x1010: min discharge voltage (mV)
+        offset = putShort(frame, offset, maxDischgCurr);          // 0x1011: max discharge current (10mA, assumed)
+        offset = putShort(frame, offset, 0);                      // 0x1012: unknown
+        offset = putShort(frame, offset, 0);                      // 0x1013: unknown
+        offset = putShort(frame, offset, 0);                      // 0x1014: unknown
+        offset = putShort(frame, offset, 0);                      // 0x1015: unknown
+        putShort(frame, offset, 0);                               // 0x1016: unknown
 
-        final StringBuilder hex = new StringBuilder();
-        for (final byte b : frame) hex.append(String.format("%02X ", b));
-        LOG.info("Modbus response addr=0x{}: SOC={}% V={}V I={}A T={}°C | {}",
+        LOG.info("Modbus response addr=0x{}: SOC={}.{}% V={}V I={}A T={}°C",
                 Integer.toHexString(address & 0xFF),
-                soc, pack.packVoltage / 10.0, pack.packCurrent / 10.0, tempAvg / 10.0, hex);
+                soc / 10, soc % 10,
+                pack.packVoltage / 10.0,
+                pack.packCurrent / 10.0,
+                tempAvg / 10.0);
 
         appendCRC(frame);
         return ByteBuffer.wrap(frame);
