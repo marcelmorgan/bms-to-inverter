@@ -115,26 +115,36 @@ chmod +x $DEPLOY/start.sh
 
 Create `$DEPLOY/config/config.properties` — adjust slave IDs and port names for your setup:
 
+First find the persistent path for each adapter (these survive unplugging and reboots):
+```bash
+ls /dev/serial/by-id/
+# Example output:
+#   usb-FTDI_FT232R_USB_UART_A10L900J-if00-port0 -> ../../ttyUSB1   ← BMS adapter
+#   usb-FTDI_FT232R_USB_UART_BG00U13S-if00-port0 -> ../../ttyUSB3   ← Inverter adapter
+```
+
+Use those `/dev/serial/by-id/...` paths in your config — never use `/dev/ttyUSBN` directly, as the number changes when the adapter is replugged.
+
 ```properties
 bms.pollInterval=5
 
 # One entry per ESM-48150B1 unit. Slave addresses are set on the unit (default 1–6).
-# Check the address of each unit with: mbpoll -a 1 -b 9600 -t 4:hex -r 0x1000 -c 1 /dev/ttyUSB1
+# Check the address of each unit with: mbpoll -a 1 -b 9600 -t 4:hex -r 0x1000 -c 1 /dev/serial/by-id/<your-bms-adapter>
 bms.1.type=HUAWEI_ESM48150_MODBUS
 bms.1.id=1              # Modbus slave address of first unit (0xD9 = 217 decimal if using Huawei defaults)
-bms.1.portLocator=/dev/ttyUSB1
+bms.1.portLocator=/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A10L900J-if00-port0
 bms.1.baudRate=9600
 bms.1.delayAfterNoBytes=200
 
 # Repeat bms.2 through bms.N for each additional unit, changing .id for each slave address
 # bms.2.type=HUAWEI_ESM48150_MODBUS
 # bms.2.id=2
-# bms.2.portLocator=/dev/ttyUSB1
+# bms.2.portLocator=/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A10L900J-if00-port0
 # bms.2.baudRate=9600
 # bms.2.delayAfterNoBytes=200
 
 inverter.type=PYLON2_RS485
-inverter.portLocator=/dev/ttyUSB2
+inverter.portLocator=/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_BG00U13S-if00-port0
 inverter.baudRate=9600
 inverter.sendInterval=1
 ```
