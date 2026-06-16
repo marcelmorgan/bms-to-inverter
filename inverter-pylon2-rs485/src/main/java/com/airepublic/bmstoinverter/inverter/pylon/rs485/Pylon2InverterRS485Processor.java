@@ -187,9 +187,9 @@ public class Pylon2InverterRS485Processor extends Inverter {
      * Register map (Deye SUN-8K Pylontech mode — empirically confirmed):
      * 0x1000: Pack voltage (0.01V per bit)          — confirmed: matches displayed value
      * 0x1001: Pack current (0.1A, signed)
-     * 0x1002: SOC (integer %)                        — sent for charge control; Deye ignores for display (uses voltage-based SOC)
+     * 0x1002: SOC (0.1%)                             — e.g. 960 = 96.0%
      * 0x1003: Temperature (0.1°C per bit)            — confirmed: SOH=100 there showed as 10°C
-     * 0x1004: SOH (integer %)
+     * 0x1004: SOH (0.1%)                             — e.g. 1000 = 100.0%
      * 0x1005: Status flags (bit0=charge, bit1=discharge, bit2=force)  — confirmed: value shown as hex in fault col 1 (3="3|0|0")
      * 0x1006: Alarm flags 1                          — confirmed: cell mV here showed as fault code
      * 0x1007: Alarm flags 2
@@ -217,9 +217,9 @@ public class Pylon2InverterRS485Processor extends Inverter {
         frame[1] = 0x04;
         frame[2] = (byte) byteCount;
 
-        // packSOC stored internally as 0.1% units (e.g. 960 = 96.0%); send as integer %
-        final int soc = pack.packSOC / 10;
-        final int soh = pack.packSOH > 0 ? pack.packSOH / 10 : 100;
+        // packSOC/packSOH stored internally as 0.1% units (e.g. 960 = 96.0%); Pylontech protocol uses same units
+        final int soc = pack.packSOC;
+        final int soh = pack.packSOH > 0 ? pack.packSOH : 1000; // 0.1% units; 1000 = 100.0%
 
         final int tempAvg = (pack.tempMax + pack.tempMin) / 2;
 
@@ -228,19 +228,25 @@ public class Pylon2InverterRS485Processor extends Inverter {
         if (pack.dischargeMOSState) status |= 0x02;
         if (pack.forceCharge) status |= 0x04;
 
+        // maxPackVoltageLimit/minPackVoltageLimit in 0.1V; register expects 0.01V → ×10
+        final int maxChargeV    = pack.maxPackVoltageLimit    > 0 ? pack.maxPackVoltageLimit    * 10 : 5760;
+        final int minDischargeV = pack.minPackVoltageLimit    > 0 ? pack.minPackVoltageLimit    * 10 : 4000;
+        final int maxChargeCurr = pack.maxPackChargeCurrent   > 0 ? pack.maxPackChargeCurrent        : 750;
+        final int maxDischgCurr = pack.maxPackDischargeCurrent > 0 ? pack.maxPackDischargeCurrent    : 1500;
+
         int offset = 3;
         offset = putShort(frame, offset, pack.packVoltage * 10);  // 0x1000: voltage (0.01V) — CONFIRMED
         offset = putShort(frame, offset, pack.packCurrent);        // 0x1001: current (0.1A, signed)
-        offset = putShort(frame, offset, soc);                     // 0x1002: SOC (%) — for charge control (Deye ignores for display)
+        offset = putShort(frame, offset, soc);                     // 0x1002: SOC (0.1%) — e.g. 960 = 96.0%
         offset = putShort(frame, offset, tempAvg);                 // 0x1003: temperature (0.1°C) — CONFIRMED
-        offset = putShort(frame, offset, soh);                     // 0x1004: SOH (%)
+        offset = putShort(frame, offset, soh);                     // 0x1004: SOH (0.1%)
         offset = putShort(frame, offset, status);                  // 0x1005: status flags — CONFIRMED drives fault col 1 (status=3 → "3|0|0")
         offset = putShort(frame, offset, 0);                       // 0x1006: alarm flags 1 — zero to clear fault display
         offset = putShort(frame, offset, 0);                       // 0x1007: alarm flags 2 — zero to clear fault display
-        offset = putShort(frame, offset, 5760);                    // 0x1008: max charge voltage (0.01V = 57.60V)
-        offset = putShort(frame, offset, 4000);                    // 0x1009: min discharge voltage (0.01V = 40.00V)
-        offset = putShort(frame, offset, 750);                     // 0x100A: max charge current (0.1A = 75A)
-        offset = putShort(frame, offset, 1500);                    // 0x100B: max discharge current (0.1A = 150A)
+        offset = putShort(frame, offset, maxChargeV);              // 0x1008: max charge voltage (0.01V)
+        offset = putShort(frame, offset, minDischargeV);           // 0x1009: min discharge voltage (0.01V)
+        offset = putShort(frame, offset, maxChargeCurr);           // 0x100A: max charge current (0.1A)
+        offset = putShort(frame, offset, maxDischgCurr);           // 0x100B: max discharge current (0.1A)
         offset = putShort(frame, offset, 0);                       // 0x100C: warning flags 1
         offset = putShort(frame, offset, 0);                       // 0x100D: warning flags 2
         offset = putShort(frame, offset, 0);                       // 0x100E: fault flags 1
@@ -257,7 +263,7 @@ public class Pylon2InverterRS485Processor extends Inverter {
         for (final byte b : frame) hex.append(String.format("%02X ", b));
         LOG.info("Deye BMS response addr=0x{}: SOC={}% voltage={}V current={}A temp={}°C | frame={}",
                 Integer.toHexString(address & 0xFF),
-                soc, pack.packVoltage / 10.0, pack.packCurrent / 10.0, tempAvg / 10.0, hex);
+                soc / 10.0, pack.packVoltage / 10.0, pack.packCurrent / 10.0, tempAvg / 10.0, hex);
 
         appendCRC(frame);
         return ByteBuffer.wrap(frame);
