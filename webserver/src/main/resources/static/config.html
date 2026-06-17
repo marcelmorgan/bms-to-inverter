@@ -196,19 +196,31 @@ main { max-width: 760px; margin: 0 auto; padding: 20px 16px; display: flex; flex
 }
 
 /* Scanner */
+.scan-section {
+  background: #f0fdfa; border: 1.5px solid #99f6e4;
+  border-radius: 10px; padding: 14px; margin-bottom: 16px;
+}
+.scan-section-title {
+  font-size: 13px; font-weight: 700; color: #0d9488;
+  margin-bottom: 12px; display: flex; align-items: center; gap: 6px;
+}
 .scan-result-row {
   display: flex; align-items: center; gap: 12px;
-  padding: 8px 0; border-bottom: 1px solid var(--border);
+  padding: 8px 0; border-bottom: 1px solid #99f6e4;
 }
 .scan-result-row:last-child { border-bottom: none; }
 .scan-result-addr { flex: 1; font-size: 14px; font-weight: 600; }
 .scan-result-added { font-size: 12px; color: var(--muted); }
-.scan-progress { font-size: 13px; color: var(--muted); padding: 8px 0; line-height: 1.6; }
+.scan-progress { font-size: 13px; color: #0d9488; padding: 4px 0; }
 .scan-error {
   background: #fee2e2; border: 1px solid #fecaca;
   border-radius: 8px; padding: 10px 14px;
   font-size: 13px; color: #dc2626; margin-top: 8px;
 }
+[data-theme="dark"] .scan-section { background: #022c2b; border-color: #0f766e; }
+[data-theme="dark"] .scan-section-title { color: #2dd4bf; }
+[data-theme="dark"] .scan-progress { color: #2dd4bf; }
+[data-theme="dark"] .scan-result-row { border-bottom-color: #0f766e; }
 [data-theme="dark"] .scan-error { background: #450a0a; border-color: #7f1d1d; color: #fca5a5; }
 </style>
 </head>
@@ -227,7 +239,7 @@ main { max-width: 760px; margin: 0 auto; padding: 20px 16px; display: flex; flex
     Saving will write the config file and restart the service. The dashboard will reconnect automatically within a few seconds.
   </div>
 
-  <!-- BMS section -->
+  <!-- BMS section (scanner integrated at top) -->
   <div class="card">
     <div class="card-head">
       <div>
@@ -237,6 +249,41 @@ main { max-width: 760px; margin: 0 auto; padding: 20px 16px; display: flex; flex
       <button class="btn btn-ghost btn-sm" onclick="addBms()">+ Add BMS</button>
     </div>
     <div class="card-body">
+
+      <!-- Modbus Scanner -->
+      <div class="scan-section">
+        <div class="scan-section-title">&#128269; Modbus Scanner — discover slave addresses on an RS485 bus</div>
+        <div class="row row-2" style="margin-bottom:12px">
+          <div class="field">
+            <label>Port</label>
+            <select id="scanPort"></select>
+          </div>
+          <div class="field">
+            <label>Baud rate</label>
+            <input type="number" id="scanBaud" value="9600">
+          </div>
+        </div>
+        <div class="row row-3" style="margin-bottom:12px">
+          <div class="field">
+            <label>Start address</label>
+            <input type="number" id="scanStart" value="1" min="1" max="247">
+          </div>
+          <div class="field">
+            <label>End address</label>
+            <input type="number" id="scanEnd" value="247" min="1" max="247">
+          </div>
+          <div class="field">
+            <label>BMS type to add</label>
+            <input type="text" id="scanBmsType" list="bmsTypeList" value="HUAWEI_ESM48150_MODBUS">
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+          <button class="btn btn-ghost btn-sm" id="scanBtn" onclick="startScan()" style="border-color:#0d9488;color:#0d9488">Scan</button>
+          <div id="scanCounter" class="scan-progress" style="display:none"></div>
+        </div>
+        <div id="scanResultsList" style="margin-top:10px"></div>
+      </div>
+
       <div class="field row row-2" style="margin-bottom:4px">
         <div class="field">
           <label>Poll interval</label>
@@ -246,48 +293,6 @@ main { max-width: 760px; margin: 0 auto; padding: 20px 16px; display: flex; flex
       </div>
       <hr class="card-divider" style="margin: 12px 0">
       <div class="bms-list" id="bmsList"></div>
-    </div>
-  </div>
-
-  <!-- Modbus Scanner section -->
-  <div class="card">
-    <div class="card-head">
-      <div>
-        <h2>Modbus Scanner</h2>
-        <div class="card-head-sub">Discover battery slave addresses on an RS485 bus</div>
-      </div>
-    </div>
-    <div class="card-body">
-      <div class="row row-2" style="margin-bottom:12px">
-        <div class="field">
-          <label>Port</label>
-          <select id="scanPort"></select>
-        </div>
-        <div class="field">
-          <label>Baud rate</label>
-          <input type="number" id="scanBaud" value="9600">
-        </div>
-      </div>
-      <div class="row row-3" style="margin-bottom:16px">
-        <div class="field">
-          <label>Start address</label>
-          <input type="number" id="scanStart" value="1" min="1" max="247">
-        </div>
-        <div class="field">
-          <label>End address</label>
-          <input type="number" id="scanEnd" value="247" min="1" max="247">
-        </div>
-        <div class="field">
-          <label>BMS type to add</label>
-          <input type="text" id="scanBmsType" list="bmsTypeList" value="HUAWEI_ESM48150_MODBUS">
-        </div>
-      </div>
-      <button class="btn btn-ghost" id="scanBtn" onclick="startScan()">Scan</button>
-      <div id="scanStatus" style="display:none"></div>
-      <div id="scanResults" style="display:none">
-        <hr class="card-divider" style="margin:16px 0">
-        <div id="scanResultsList"></div>
-      </div>
     </div>
   </div>
 
@@ -551,19 +556,16 @@ function startScan() {
   var end = parseInt(v('scanEnd')) || 247;
 
   if (!port) { alert('Please select a port'); return; }
-
   if (activeScanEs) { activeScanEs.close(); activeScanEs = null; }
 
   var btn = document.getElementById('scanBtn');
-  var status = document.getElementById('scanStatus');
-  var results = document.getElementById('scanResults');
+  var counter = document.getElementById('scanCounter');
   var list = document.getElementById('scanResultsList');
 
   btn.disabled = true;
   btn.textContent = 'Scanning…';
-  status.style.display = '';
-  status.innerHTML = '<div class="scan-progress" id="scanCounter">Probing address 1 of ' + (end - start + 1) + '…</div>';
-  results.style.display = '';
+  counter.style.display = '';
+  counter.textContent = 'Probing address ' + start + ' of ' + (end - start + 1) + '…';
   list.innerHTML = '';
   var foundCount = 0;
 
@@ -577,8 +579,7 @@ function startScan() {
     var data = JSON.parse(evt.data);
 
     if (data.type === 'progress') {
-      var counter = document.getElementById('scanCounter');
-      if (counter) counter.textContent = 'Probing address ' + data.current + ' of ' + data.total + '…';
+      counter.textContent = 'Probing address ' + data.current + ' of ' + data.total + '…';
 
     } else if (data.type === 'found') {
       foundCount++;
@@ -589,19 +590,19 @@ function startScan() {
       row.innerHTML =
         '<span class="scan-result-addr">Address ' + data.address + '</span>' +
         (already
-          ? '<span class="scan-result-added">✓ Already configured</span>'
-          : '<button class="btn btn-ghost btn-sm" onclick="addFromScan(' + data.address + ')">+ Add</button>');
+          ? '<span class="scan-result-added">&#10003; Already configured</span>'
+          : '<button class="btn btn-ghost btn-sm" onclick="addFromScan(' + data.address + ')" style="border-color:#0d9488;color:#0d9488">+ Add</button>');
       list.appendChild(row);
 
     } else if (data.type === 'done') {
       es.close(); activeScanEs = null;
       btn.disabled = false; btn.textContent = 'Scan';
-      status.style.display = 'none';
+      counter.style.display = 'none';
       if (foundCount === 0) {
-        list.innerHTML = '<div style="color:var(--muted);font-size:14px">No devices responded. Check port, baud rate, and that the batteries are powered on.</div>';
+        list.innerHTML = '<div style="color:var(--muted);font-size:13px">No devices responded — check port, baud rate, and that batteries are powered on.</div>';
       } else {
         var hdr = document.createElement('div');
-        hdr.style = 'font-size:13px;font-weight:700;color:var(--muted);margin-bottom:8px';
+        hdr.style.cssText = 'font-size:12px;font-weight:700;color:#0d9488;margin-bottom:6px';
         hdr.textContent = 'Found ' + foundCount + ' device(s) — scanned ' + data.scanned + ' addresses';
         list.insertBefore(hdr, list.firstChild);
       }
@@ -609,7 +610,7 @@ function startScan() {
     } else if (data.type === 'error') {
       es.close(); activeScanEs = null;
       btn.disabled = false; btn.textContent = 'Scan';
-      status.style.display = 'none';
+      counter.style.display = 'none';
       list.innerHTML = '<div class="scan-error">' + esc(data.message) + '</div>';
     }
   };
@@ -618,7 +619,8 @@ function startScan() {
     if (es.readyState === EventSource.CLOSED) return;
     es.close(); activeScanEs = null;
     btn.disabled = false; btn.textContent = 'Scan';
-    status.innerHTML = '<div class="scan-error">Connection to scanner lost.</div>';
+    counter.style.display = 'none';
+    list.innerHTML = '<div class="scan-error">Connection to scanner lost.</div>';
   };
 }
 
