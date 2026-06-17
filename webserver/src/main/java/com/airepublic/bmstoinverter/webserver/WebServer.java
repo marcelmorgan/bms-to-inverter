@@ -344,11 +344,11 @@ public class WebServer implements IWebServerService {
             try {
                 port.clearBuffers();
                 for (int unitId = startId; unitId <= endId; unitId++) {
-                    sseSend(out, "{\"type\":\"progress\",\"current\":" + unitId + ",\"total\":" + total + "}");
+                    if (!sseSend(out, "{\"type\":\"progress\",\"current\":" + unitId + ",\"total\":" + total + "}")) break;
                     try {
                         port.sendFrame(ModbusUtil.createRequestBuffer(RegisterCode.READ_HOLDING_REGISTERS, 0, 1, unitId));
                         if (port.receiveFrame() != null) {
-                            sseSend(out, "{\"type\":\"found\",\"address\":" + unitId + "}");
+                            if (!sseSend(out, "{\"type\":\"found\",\"address\":" + unitId + "}")) break;
                         }
                     } catch (final Exception ignored) {
                     }
@@ -387,7 +387,7 @@ public class WebServer implements IWebServerService {
                 }
 
                 for (int unitId = startId; unitId <= endId; unitId++) {
-                    sseSend(out, "{\"type\":\"progress\",\"current\":" + unitId + ",\"total\":" + total + "}");
+                    if (!sseSend(out, "{\"type\":\"progress\",\"current\":" + unitId + ",\"total\":" + total + "}")) break;
                     try {
                         final int avail = comPort.bytesAvailable();
                         if (avail > 0) {
@@ -396,7 +396,7 @@ public class WebServer implements IWebServerService {
                         comPort.writeBytes(modbusRtuRequest(unitId), 8);
                         final byte[] resp = new byte[1];
                         if (comPort.readBytes(resp, 1) > 0 && (resp[0] & 0xFF) == unitId) {
-                            sseSend(out, "{\"type\":\"found\",\"address\":" + unitId + "}");
+                            if (!sseSend(out, "{\"type\":\"found\",\"address\":" + unitId + "}")) break;
                         }
                     } catch (final Exception ignored) {
                     }
@@ -413,9 +413,10 @@ public class WebServer implements IWebServerService {
     }
 
 
-    private void sseSend(final PrintWriter out, final String json) {
+    private boolean sseSend(final PrintWriter out, final String json) {
         out.write("data: " + json + "\n\n");
         out.flush();
+        return !out.checkError();
     }
 
 

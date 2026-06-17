@@ -281,6 +281,7 @@ main { max-width: 760px; margin: 0 auto; padding: 20px 16px; display: flex; flex
         </div>
         <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
           <button class="btn btn-ghost btn-sm" id="scanBtn" onclick="startScan()" style="border-color:#0d9488;color:#0d9488">Scan</button>
+          <button class="btn btn-ghost btn-sm" id="stopBtn" onclick="stopScan()" style="display:none;border-color:#ef4444;color:#ef4444">Stop</button>
           <div id="scanCounter" class="scan-progress" style="display:none"></div>
         </div>
         <div id="scanResultsList" style="margin-top:10px"></div>
@@ -561,11 +562,13 @@ function startScan() {
   if (activeScanEs) { activeScanEs.close(); activeScanEs = null; }
 
   var btn = document.getElementById('scanBtn');
+  var stopBtn = document.getElementById('stopBtn');
   var counter = document.getElementById('scanCounter');
   var list = document.getElementById('scanResultsList');
 
   btn.disabled = true;
   btn.textContent = 'Scanning…';
+  stopBtn.style.display = '';
   counter.style.display = '';
   counter.textContent = 'Probing address ' + start + ' of ' + (end - start + 1) + '…';
   list.innerHTML = '';
@@ -597,9 +600,7 @@ function startScan() {
       list.appendChild(row);
 
     } else if (data.type === 'done') {
-      es.close(); activeScanEs = null;
-      btn.disabled = false; btn.textContent = 'Scan';
-      counter.style.display = 'none';
+      finishScan();
       if (foundCount === 0) {
         list.innerHTML = '<div style="color:var(--muted);font-size:13px">No devices responded — check port, baud rate, and that batteries are powered on.</div>';
       } else {
@@ -610,20 +611,36 @@ function startScan() {
       }
 
     } else if (data.type === 'error') {
-      es.close(); activeScanEs = null;
-      btn.disabled = false; btn.textContent = 'Scan';
-      counter.style.display = 'none';
+      finishScan();
       list.innerHTML = '<div class="scan-error">' + esc(data.message) + '</div>';
     }
   };
 
   es.onerror = function() {
     if (es.readyState === EventSource.CLOSED) return;
-    es.close(); activeScanEs = null;
-    btn.disabled = false; btn.textContent = 'Scan';
-    counter.style.display = 'none';
+    finishScan();
     list.innerHTML = '<div class="scan-error">Connection to scanner lost.</div>';
   };
+
+  function finishScan() {
+    es.close(); activeScanEs = null;
+    btn.disabled = false; btn.textContent = 'Scan';
+    stopBtn.style.display = 'none';
+    counter.style.display = 'none';
+  }
+}
+
+function stopScan() {
+  if (activeScanEs) {
+    activeScanEs.close();
+    activeScanEs = null;
+  }
+  var btn = document.getElementById('scanBtn');
+  var stopBtn = document.getElementById('stopBtn');
+  var counter = document.getElementById('scanCounter');
+  btn.disabled = false; btn.textContent = 'Scan';
+  stopBtn.style.display = 'none';
+  counter.style.display = 'none';
 }
 
 
