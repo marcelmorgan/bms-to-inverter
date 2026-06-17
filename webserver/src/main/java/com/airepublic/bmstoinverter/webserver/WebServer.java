@@ -459,9 +459,9 @@ public class WebServer implements IWebServerService {
                 final javax.servlet.http.HttpSession session =
                         ((javax.servlet.http.HttpServletRequest) req).getSession(false);
                 if (session != null) {
-                    final String saved = (String) session.getAttribute("org.eclipse.jetty.security.form.URI");
+                    final String saved = (String) session.getAttribute("org.eclipse.jetty.security.form_URI");
                     if (saved != null && saved.contains("/api/")) {
-                        session.setAttribute("org.eclipse.jetty.security.form.URI",
+                        session.setAttribute("org.eclipse.jetty.security.form_URI",
                                 ((javax.servlet.http.HttpServletRequest) req).getContextPath() + "/");
                     }
                 }
