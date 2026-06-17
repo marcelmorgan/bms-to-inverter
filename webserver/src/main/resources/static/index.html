@@ -54,8 +54,9 @@ body { background: var(--bg); color: var(--text); min-height: 100vh; }
   padding: 5px 12px; font-size: 12px; font-weight: 600; color: #fff;
 }
 .conn-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-.conn-dot.ok  { background: #4ade80; }
-.conn-dot.err { background: #f87171; animation: pulse 2s infinite; }
+.conn-dot.ok   { background: #4ade80; }
+.conn-dot.warn { background: #fb923c; animation: pulse 2s infinite; }
+.conn-dot.err  { background: #f87171; animation: pulse 2s infinite; }
 .conn-dot.idle { background: rgba(255,255,255,.4); }
 
 .hdr-link {
@@ -323,6 +324,7 @@ main { max-width: 1200px; margin: 0 auto; padding: 16px; display: flex; flex-dir
   </div>
 
   <div class="last-update" id="lastUpdate"></div>
+  <div class="last-update" id="serviceUptime" style="margin-top:2px"></div>
 </main>
 
 <script>
@@ -349,6 +351,7 @@ var updateTimer = null;
 var dataURL   = location.protocol + '//' + location.host + '/data';
 var sseURL    = location.protocol + '//' + location.host + '/api/data/stream';
 var statusURL = location.protocol + '//' + location.host + '/api/status';
+var healthURL = location.protocol + '//' + location.host + '/api/health';
 var alarmsURL = location.protocol + '//' + location.host + '/alarmMessages';
 
 /* ── Bootstrap ─────────────────────────────────────── */
@@ -363,6 +366,7 @@ function init() {
     refreshStatus();
     setInterval(refreshStatus, 10000);
     setInterval(updateRelTime, 5000);
+    setInterval(refreshHealth, 30000);
   }).catch(e => console.error('init failed', e));
 
   fetch(alarmsURL).then(r => r.json()).then(d => { alarmMsgs = d; }).catch(() => {});
@@ -409,6 +413,25 @@ function updateConnHeader() {
   document.getElementById('hdrDot').className = 'conn-dot ' + (all ? 'ok' : 'err');
   document.getElementById('hdrConnText').textContent =
     conn + '/' + total + ' BMS · Inv ' + (invOk ? '✓' : '✗');
+}
+
+/* ── Health / stale-data check ──────────────────────── */
+function refreshHealth() {
+  fetch(healthURL).then(r => r.json()).then(h => {
+    var stale = h.lastDataSeconds > 30;
+    if (stale) {
+      document.getElementById('hdrDot').className = 'conn-dot warn';
+      document.getElementById('hdrConnText').textContent =
+        'No data for ' + h.lastDataSeconds + 's — service may be stalled';
+    }
+    // Show uptime in the footer when things are healthy
+    var up = h.uptimeSeconds;
+    var uptimeTxt = up < 60 ? up + 's' : up < 3600 ? Math.floor(up/60) + 'm' : Math.floor(up/3600) + 'h ' + Math.floor((up%3600)/60) + 'm';
+    var el = document.getElementById('serviceUptime');
+    if (el) el.textContent = 'Service uptime: ' + uptimeTxt;
+  }).catch(() => {
+    // Health endpoint unreachable — service is likely restarting; SSE onerror handles reconnect
+  });
 }
 
 /* ── Relative time ──────────────────────────────────── */

@@ -106,7 +106,8 @@ Type=simple
 User=$SERVICE_USER
 ExecStart=$INSTALL_DIR/start.sh
 Restart=always
-RestartSec=3
+RestartSec=5
+StartLimitIntervalSec=0
 
 [Install]
 WantedBy=multi-user.target

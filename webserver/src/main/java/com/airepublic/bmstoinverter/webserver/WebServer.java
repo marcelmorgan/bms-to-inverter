@@ -69,6 +69,8 @@ public class WebServer implements IWebServerService {
     private EnergyStorage energyStorage;
     private Supplier<String> statusSupplier;
     private final CopyOnWriteArrayList<javax.servlet.AsyncContext> sseClients = new CopyOnWriteArrayList<>();
+    private final long startTimeMs = System.currentTimeMillis();
+    private volatile long lastDataMs = 0;
 
     public WebServer() {
         final ResourceBundle bundle = ResourceBundle.getBundle("alarms");
@@ -174,6 +176,19 @@ public class WebServer implements IWebServerService {
                     response.setHeader("Access-Control-Allow-Origin", "*");
                     final String status = statusSupplier != null ? statusSupplier.get() : "{\"bms\":[],\"inverter\":{}}";
                     response.getWriter().write(status);
+                    baseRequest.setHandled(true);
+                    return;
+                }
+
+                if (path.equals("/api/health")) {
+                    response.setContentType("application/json; charset=utf-8");
+                    response.setHeader("Access-Control-Allow-Origin", "*");
+                    final long now = System.currentTimeMillis();
+                    final long uptimeSec = (now - startTimeMs) / 1000;
+                    final long staleSec = lastDataMs > 0 ? (now - lastDataMs) / 1000 : -1;
+                    response.getWriter().write(
+                        "{\"status\":\"ok\",\"uptimeSeconds\":" + uptimeSec +
+                        ",\"lastDataSeconds\":" + staleSec + "}");
                     baseRequest.setHandled(true);
                     return;
                 }
@@ -304,6 +319,7 @@ public class WebServer implements IWebServerService {
 
     @Override
     public void onDataUpdated(final String dataJson) {
+        lastDataMs = System.currentTimeMillis();
         final Iterator<javax.servlet.AsyncContext> it = sseClients.iterator();
         while (it.hasNext()) {
             final javax.servlet.AsyncContext ctx = it.next();
