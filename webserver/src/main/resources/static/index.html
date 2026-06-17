@@ -251,7 +251,41 @@ main { max-width: 1200px; margin: 0 auto; padding: 16px; display: flex; flex-dir
 /* Timestamp */
 .last-update { font-size: 11px; color: var(--muted); text-align: right; padding: 0 2px; }
 
-/* Responsive tweaks */
+/* ── Dark mode ───────────────────────────────────────── */
+[data-theme="dark"] {
+  --bg:     #0f172a;
+  --card:   #1e293b;
+  --border: #334155;
+  --text:   #f1f5f9;
+  --muted:  #94a3b8;
+}
+[data-theme="dark"] .hdr                          { background: #172554; }
+[data-theme="dark"] .overview-footer              { border-top-color: #334155; }
+[data-theme="dark"] .cell-range                   { background: #162032; border-top-color: #334155; }
+[data-theme="dark"] .card-stats                   { border-top-color: #334155; }
+[data-theme="dark"] .expand-btn                   { border-top-color: #334155; }
+[data-theme="dark"] .expand-btn:hover             { background: #162032; color: var(--text); }
+[data-theme="dark"] .cell-table th                { background: #162032; border-bottom-color: #334155; }
+[data-theme="dark"] .cell-table tr:nth-child(odd) td { background: #1a2840; }
+[data-theme="dark"] .alarm-card                   { background: #2d1a0e; border-color: #92400e; }
+[data-theme="dark"] .alarm-title                  { color: #fb923c; }
+[data-theme="dark"] .alarm-item                   { color: #fcd34d; }
+[data-theme="dark"] .state-badge.charging         { background: #14532d; color: #86efac; }
+[data-theme="dark"] .state-badge.discharging      { background: #1e3a5f; color: #93c5fd; }
+[data-theme="dark"] .state-badge.idle             { background: #334155; color: #94a3b8; }
+[data-theme="dark"] .state-badge.sleep            { background: #2e1065; color: #c4b5fd; }
+[data-theme="dark"] .soc-track                    { background: #334155; }
+[data-theme="dark"] .bms-entry                    { border-color: #334155; }
+[data-theme="dark"] .bms-entry-head               { background: #162032; border-bottom-color: #334155; }
+
+.hdr-theme {
+  background: none; border: none; cursor: pointer;
+  font-size: 18px; padding: 4px 2px; line-height: 1;
+  opacity: .65; transition: opacity .15s; color: inherit;
+}
+.hdr-theme:hover { opacity: 1; }
+
+/* ── Responsive tweaks ───────────────────────────────── */
 @media (max-width: 480px) {
   main { padding: 10px; gap: 10px; }
   .ov-val { font-size: 22px; }
@@ -269,6 +303,7 @@ main { max-width: 1200px; margin: 0 auto; padding: 16px; display: flex; flex-dir
     <span class="conn-dot idle" id="hdrDot"></span>
     <span id="hdrConnText">Connecting…</span>
   </div>
+  <button class="hdr-theme" id="themeBtn" onclick="toggleTheme()" title="Toggle dark mode"></button>
   <a class="hdr-link" href="/config.html" title="Configure">&#9881;</a>
 </header>
 
@@ -298,6 +333,19 @@ main { max-width: 1200px; margin: 0 auto; padding: 16px; display: flex; flex-dir
 </main>
 
 <script>
+/* Theme — run immediately to avoid flash */
+(function() {
+  var t = localStorage.getItem('bms-theme') || 'light';
+  document.documentElement.setAttribute('data-theme', t);
+})();
+
+function toggleTheme() {
+  var t = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', t);
+  localStorage.setItem('bms-theme', t);
+  document.getElementById('themeBtn').textContent = t === 'dark' ? '☀' : '🌙';
+}
+
 var bmsData    = null;
 var statusData = null;
 var alarmMsgs  = {};
@@ -312,6 +360,9 @@ var alarmsURL = location.protocol + '//' + location.host + '/alarmMessages';
 
 /* ── Bootstrap ─────────────────────────────────────── */
 function init() {
+  document.getElementById('themeBtn').textContent =
+    document.documentElement.getAttribute('data-theme') === 'dark' ? '☀' : '🌙';
+
   fetch(dataURL).then(r => r.json()).then(d => {
     bmsData = d;
     renderAll();
