@@ -586,14 +586,7 @@ function renderScanResults(data, port, baud) {
   results.style.display = '';
 
   if (data.error) {
-    var msg = esc(data.error);
-    if (data.error.toLowerCase().indexOf('cannot be opened') !== -1 ||
-        data.error.toLowerCase().indexOf('in use') !== -1) {
-      msg = 'Port is held open by the running BMS service.<br>' +
-        'Stop it first: <code>sudo systemctl stop bms.service</code><br>' +
-        'Then scan. After saving the new config the service restarts automatically.';
-    }
-    list.innerHTML = '<div class="scan-error">' + msg + '</div>';
+    list.innerHTML = '<div class="scan-error">' + esc(data.error) + '</div>';
     return;
   }
 

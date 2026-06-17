@@ -43,9 +43,13 @@ import org.eclipse.jetty.util.ssl.SslContextFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.airepublic.bmstoinverter.core.Port;
+import com.airepublic.bmstoinverter.core.PortAllocator;
 import com.airepublic.bmstoinverter.core.bms.data.BatteryPack;
 import com.airepublic.bmstoinverter.core.bms.data.EnergyStorage;
 import com.airepublic.bmstoinverter.core.service.IWebServerService;
+import com.airepublic.bmstoinverter.protocol.modbus.ModbusUtil;
+import com.airepublic.bmstoinverter.protocol.modbus.ModbusUtil.RegisterCode;
 import com.ghgande.j2mod.modbus.Modbus;
 import com.ghgande.j2mod.modbus.facade.ModbusSerialMaster;
 import com.ghgande.j2mod.modbus.io.ModbusSerialTransaction;
@@ -328,66 +332,131 @@ public class WebServer implements IWebServerService {
     private String scanModbus(final String portName, final int baudRate, final int startId, final int endId) {
         final List<Integer> found = new ArrayList<>();
         String error = null;
-        ModbusSerialMaster master = null;
 
-        try {
-            // j2mod expects bare names like "ttyUSB0", not "/dev/ttyUSB0" or by-id symlinks
-            String resolvedPort = portName;
+        // If the BMS service is running, borrow its already-open port from PortAllocator.
+        // This avoids the exclusive-lock conflict and keeps the web server alive.
+        final String allocKey = findAllocatorKey(portName);
+
+        if (allocKey != null) {
+            LOG.info("Modbus scan using shared PortAllocator port: {}", allocKey);
+            final Port port = PortAllocator.allocate(allocKey);
             try {
-                final Path p = Paths.get(portName);
-                resolvedPort = (Files.isSymbolicLink(p) ? p.toRealPath() : p).getFileName().toString();
-            } catch (final Exception ignored) {
-            }
-
-            final SerialParameters params = new SerialParameters();
-            params.setPortName(resolvedPort);
-            params.setBaudRate(baudRate);
-            params.setDatabits(8);
-            params.setParity("None");
-            params.setStopbits(1);
-            params.setEncoding(Modbus.SERIAL_ENCODING_RTU);
-            params.setEcho(false);
-
-            master = new ModbusSerialMaster(params, 300);
-            master.connect();
-            master.setRetries(0);
-
-            for (int unitId = startId; unitId <= endId; unitId++) {
-                try {
-                    final ReadMultipleRegistersRequest request = new ReadMultipleRegistersRequest(0, 1);
-                    request.setUnitID(unitId);
-                    request.setHeadless();
-
-                    final ModbusSerialTransaction transaction = new ModbusSerialTransaction(request);
-                    transaction.setSerialConnection(master.getConnection());
-                    transaction.setRetries(0);
-                    transaction.setTransDelayMS(0);
-                    transaction.execute();
-
-                    if (transaction.getResponse() != null) {
-                        found.add(unitId);
+                port.clearBuffers();
+                for (int unitId = startId; unitId <= endId; unitId++) {
+                    try {
+                        port.sendFrame(ModbusUtil.createRequestBuffer(RegisterCode.READ_HOLDING_REGISTERS, 0, 1, unitId));
+                        final java.nio.ByteBuffer response = port.receiveFrame();
+                        if (response != null) {
+                            found.add(unitId);
+                        }
+                    } catch (final Exception ignored) {
                     }
+                }
+            } catch (final Exception e) {
+                error = e.getMessage();
+                LOG.warn("Modbus scan error (allocator path) on {}: {}", portName, e.getMessage());
+            } finally {
+                PortAllocator.free(allocKey);
+            }
+        } else {
+            // Service is stopped — open the port directly via j2mod
+            LOG.info("Modbus scan opening port directly (service not running): {}", portName);
+            ModbusSerialMaster master = null;
+            try {
+                String resolvedPort = portName;
+                try {
+                    final Path p = Paths.get(portName);
+                    resolvedPort = (Files.isSymbolicLink(p) ? p.toRealPath() : p).getFileName().toString();
                 } catch (final Exception ignored) {
                 }
-            }
-        } catch (final Exception e) {
-            error = e.getMessage();
-            LOG.warn("Modbus scan error on {}: {}", portName, e.getMessage());
-        } finally {
-            if (master != null) {
-                try {
-                    master.disconnect();
-                } catch (final Exception ignored) {
+
+                final SerialParameters params = new SerialParameters();
+                params.setPortName(resolvedPort);
+                params.setBaudRate(baudRate);
+                params.setDatabits(8);
+                params.setParity("None");
+                params.setStopbits(1);
+                params.setEncoding(Modbus.SERIAL_ENCODING_RTU);
+                params.setEcho(false);
+
+                master = new ModbusSerialMaster(params, 300);
+                master.connect();
+                master.setRetries(0);
+
+                for (int unitId = startId; unitId <= endId; unitId++) {
+                    try {
+                        final ReadMultipleRegistersRequest request = new ReadMultipleRegistersRequest(0, 1);
+                        request.setUnitID(unitId);
+                        request.setHeadless();
+
+                        final ModbusSerialTransaction transaction = new ModbusSerialTransaction(request);
+                        transaction.setSerialConnection(master.getConnection());
+                        transaction.setRetries(0);
+                        transaction.setTransDelayMS(0);
+                        transaction.execute();
+
+                        if (transaction.getResponse() != null) {
+                            found.add(unitId);
+                        }
+                    } catch (final Exception ignored) {
+                    }
+                }
+            } catch (final Exception e) {
+                error = e.getMessage();
+                LOG.warn("Modbus scan error (direct path) on {}: {}", portName, e.getMessage());
+            } finally {
+                if (master != null) {
+                    try {
+                        master.disconnect();
+                    } catch (final Exception ignored) {
+                    }
                 }
             }
         }
 
+        return buildScanResult(found, endId - startId + 1, error);
+    }
+
+
+    private String findAllocatorKey(final String portName) {
+        if (PortAllocator.hasPort(portName)) return portName;
+
+        try {
+            final Path p = Paths.get(portName);
+            // If user selected a by-id symlink, try the resolved real path too
+            if (Files.isSymbolicLink(p)) {
+                final String real = p.toRealPath().toString();
+                if (PortAllocator.hasPort(real)) return real;
+            }
+            // If user selected /dev/ttyUSBX, scan by-id links that resolve to it
+            final Path byId = Paths.get("/dev/serial/by-id");
+            if (Files.isDirectory(byId)) {
+                try (DirectoryStream<Path> stream = Files.newDirectoryStream(byId)) {
+                    for (final Path link : stream) {
+                        try {
+                            if (PortAllocator.hasPort(link.toString()) &&
+                                    link.toRealPath().equals(p.toRealPath())) {
+                                return link.toString();
+                            }
+                        } catch (final Exception ignored) {
+                        }
+                    }
+                }
+            }
+        } catch (final Exception ignored) {
+        }
+
+        return null;
+    }
+
+
+    private String buildScanResult(final List<Integer> found, final int scanned, final String error) {
         final StringBuilder sb = new StringBuilder("{\"found\":[");
         for (int i = 0; i < found.size(); i++) {
             if (i > 0) sb.append(",");
             sb.append(found.get(i));
         }
-        sb.append("],\"scanned\":").append(endId - startId + 1);
+        sb.append("],\"scanned\":").append(scanned);
         if (error != null) {
             sb.append(",\"error\":\"").append(error.replace("\\", "\\\\").replace("\"", "\\\"")).append("\"");
         } else {
