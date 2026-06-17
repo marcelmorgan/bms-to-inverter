@@ -396,7 +396,7 @@ function init() {
   ]).then(([cfg, ps]) => {
     ports = ps;
     populatePortSelect('invPort', cfg.inverter && cfg.inverter.portLocator);
-    populatePortSelect('scanPort', null);
+    populatePortSelect('scanPort', null, true);
 
     document.getElementById('pollInterval').value = cfg.pollInterval || 5;
 
@@ -414,10 +414,16 @@ function init() {
   }).catch(e => alert('Failed to load config: ' + e));
 }
 
-function populatePortSelect(id, selected) {
+function populatePortSelect(id, selected, rsLabels) {
   var sel = document.getElementById(id);
   if (!sel) return;
   sel.innerHTML = '';
+
+  // When rsLabels is set and no default is given, auto-select the first RS485 port.
+  if (rsLabels && !selected) {
+    var firstInUse = ports.find(p => p.inUse);
+    if (firstInUse) selected = firstInUse.path;
+  }
 
   // Manual entry option first if it doesn't match any discovered port
   var found = ports.find(p => p.path === selected || p.resolvedTo === selected);
@@ -429,6 +435,7 @@ function populatePortSelect(id, selected) {
   ports.forEach(p => {
     var label = p.path;
     if (p.resolvedTo && p.resolvedTo !== p.path) label += '  →  ' + p.resolvedTo;
+    if (rsLabels && p.inUse) label += '  · RS485';
     var opt = new Option(label, p.path);
     if (p.path === selected || p.resolvedTo === selected) opt.selected = true;
     sel.appendChild(opt);
@@ -570,7 +577,7 @@ function startScan() {
   btn.textContent = 'Scanning…';
   stopBtn.style.display = '';
   counter.style.display = '';
-  counter.textContent = 'Probing address ' + start + ' of ' + (end - start + 1) + '…';
+  counter.textContent = 'Probing address ' + start + ' of ' + end + '…';
   list.innerHTML = '';
   var foundCount = 0;
 
@@ -584,7 +591,7 @@ function startScan() {
     var data = JSON.parse(evt.data);
 
     if (data.type === 'progress') {
-      counter.textContent = 'Probing address ' + data.current + ' of ' + data.total + '…';
+      counter.textContent = 'Probing address ' + data.current + ' of ' + data.end + '…';
 
     } else if (data.type === 'found') {
       foundCount++;

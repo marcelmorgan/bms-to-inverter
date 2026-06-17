@@ -10,11 +10,13 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.Set;
 import java.util.ResourceBundle;
 import java.util.TreeMap;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -344,7 +346,7 @@ public class WebServer implements IWebServerService {
             try {
                 port.clearBuffers();
                 for (int unitId = startId; unitId <= endId; unitId++) {
-                    if (!sseSend(out, "{\"type\":\"progress\",\"current\":" + unitId + ",\"total\":" + total + "}")) break;
+                    if (!sseSend(out, "{\"type\":\"progress\",\"current\":" + unitId + ",\"end\":" + endId + "}")) break;
                     try {
                         port.sendFrame(ModbusUtil.createRequestBuffer(RegisterCode.READ_HOLDING_REGISTERS, 0, 1, unitId));
                         if (port.receiveFrame() != null) {
@@ -381,13 +383,28 @@ public class WebServer implements IWebServerService {
                 comPort.setComPortTimeouts(
                         com.fazecast.jSerialComm.SerialPort.TIMEOUT_READ_BLOCKING, 300, 0);
 
-                if (!comPort.openPort()) {
-                    sseSend(out, "{\"type\":\"error\",\"message\":\"Could not open port " + escJson(devPath) + "\"}");
+                // Reset any stale internal state from a prior attempt, then retry in case
+                // ModemManager is transiently probing the port.
+                comPort.closePort();
+                boolean opened = false;
+                for (int attempt = 0; attempt < 3 && !opened; attempt++) {
+                    if (attempt > 0) {
+                        try {
+                            Thread.sleep(600);
+                        } catch (final InterruptedException ie) {
+                            Thread.currentThread().interrupt();
+                            break;
+                        }
+                    }
+                    opened = comPort.openPort(1000);
+                }
+                if (!opened) {
+                    sseSend(out, "{\"type\":\"error\",\"message\":\"" + escJson(portOpenErrorMessage(devPath, comPort.getLastErrorCode())) + "\"}");
                     return;
                 }
 
                 for (int unitId = startId; unitId <= endId; unitId++) {
-                    if (!sseSend(out, "{\"type\":\"progress\",\"current\":" + unitId + ",\"total\":" + total + "}")) break;
+                    if (!sseSend(out, "{\"type\":\"progress\",\"current\":" + unitId + ",\"end\":" + endId + "}")) break;
                     try {
                         final int avail = comPort.bytesAvailable();
                         if (avail > 0) {
@@ -410,6 +427,25 @@ public class WebServer implements IWebServerService {
                 }
             }
         }
+    }
+
+
+    private static String portOpenErrorMessage(final String devPath, final int errCode) {
+        final String hint;
+        if (errCode == 2) {
+            hint = "port not found";
+        } else if (errCode == 11) {
+            hint = "port temporarily busy — ModemManager may be probing it, retry in a few seconds";
+        } else if (errCode == 13) {
+            hint = "permission denied — run: sudo usermod -aG dialout $USER";
+        } else if (errCode == 16) {
+            hint = "port held by another process";
+        } else if (errCode == 19) {
+            hint = "device not present";
+        } else {
+            hint = "OS error " + errCode;
+        }
+        return "Could not open " + devPath + ": " + hint;
     }
 
 
@@ -482,7 +518,33 @@ public class WebServer implements IWebServerService {
 
 
     private String getPortsJson() {
-        final List<Map<String, String>> ports = new ArrayList<>();
+        // Collect portLocator values from config so we can mark RS485 ports.
+        final Set<String> configuredPaths = new HashSet<>();
+        try {
+            final String configFile = System.getProperty("configFile", "config.properties");
+            final Properties props = new Properties();
+            try (FileInputStream fis = new FileInputStream(configFile)) {
+                props.load(fis);
+            }
+            for (final String key : props.stringPropertyNames()) {
+                if (key.matches("bms\\.\\d+\\.portLocator") || key.equals("inverter.portLocator")) {
+                    final String val = props.getProperty(key);
+                    if (val != null && !val.isBlank()) {
+                        configuredPaths.add(val);
+                        try {
+                            final Path p = Paths.get(val);
+                            if (Files.isSymbolicLink(p)) {
+                                configuredPaths.add(p.toRealPath().toString());
+                            }
+                        } catch (final Exception ignored) {
+                        }
+                    }
+                }
+            }
+        } catch (final Exception ignored) {
+        }
+
+        final List<Map<String, Object>> ports = new ArrayList<>();
 
         final Path byId = Paths.get("/dev/serial/by-id");
         if (Files.isDirectory(byId)) {
@@ -491,10 +553,13 @@ public class WebServer implements IWebServerService {
                     try {
                         final Path target = Files.readSymbolicLink(link);
                         final Path resolved = byId.resolve(target).normalize();
-                        final Map<String, String> port = new LinkedHashMap<>();
-                        port.put("path", link.toString());
-                        port.put("resolvedTo", resolved.toString());
+                        final String linkStr = link.toString();
+                        final String resolvedStr = resolved.toString();
+                        final Map<String, Object> port = new LinkedHashMap<>();
+                        port.put("path", linkStr);
+                        port.put("resolvedTo", resolvedStr);
                         port.put("description", link.getFileName().toString());
+                        port.put("inUse", configuredPaths.contains(linkStr) || configuredPaths.contains(resolvedStr));
                         ports.add(port);
                     } catch (final Exception ignored) {
                     }
@@ -510,16 +575,20 @@ public class WebServer implements IWebServerService {
                     final boolean alreadyListed = ports.stream()
                             .anyMatch(port -> pathStr.equals(port.get("resolvedTo")));
                     if (!alreadyListed) {
-                        final Map<String, String> port = new LinkedHashMap<>();
+                        final Map<String, Object> port = new LinkedHashMap<>();
                         port.put("path", pathStr);
                         port.put("resolvedTo", pathStr);
                         port.put("description", p.getFileName().toString());
+                        port.put("inUse", configuredPaths.contains(pathStr));
                         ports.add(port);
                     }
                 }
             } catch (final Exception ignored) {
             }
         }
+
+        // RS485/in-use ports first so they appear at the top of every port selector.
+        ports.sort((a, b) -> Boolean.compare(!(Boolean) b.get("inUse"), !(Boolean) a.get("inUse")));
 
         return new Gson().toJson(ports);
     }
@@ -606,9 +675,10 @@ public class WebServer implements IWebServerService {
             for (final JsonElement el : root.getAsJsonArray("bms")) {
                 final JsonObject bms = el.getAsJsonObject();
                 final int id = bms.has("id") ? bms.get("id").getAsInt() : idx;
+                existing.setProperty("bms." + idx + ".id", String.valueOf(id));
                 for (final Map.Entry<String, JsonElement> entry : bms.entrySet()) {
                     if (!entry.getKey().equals("id")) {
-                        existing.setProperty("bms." + id + "." + entry.getKey(),
+                        existing.setProperty("bms." + idx + "." + entry.getKey(),
                                 entry.getValue().getAsString());
                     }
                 }
