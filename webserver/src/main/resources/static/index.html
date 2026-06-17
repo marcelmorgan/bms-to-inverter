@@ -437,7 +437,9 @@ function renderOverview() {
   if (!n) return;
 
   var avgSoc = packs.reduce((s, p) => s + p.packSOC, 0) / n / 10;
-  var totalA = packs.reduce((s, p) => s + p.packCurrent, 0) / 10;
+  // Each ESM-48150B1 reports total bus current (not individual pack current),
+  // so average rather than sum across all packs.
+  var totalA = packs.reduce((s, p) => s + p.packCurrent, 0) / n / 10;
   var avgV   = packs.reduce((s, p) => s + p.packVoltage, 0) / n / 10;
 
   var state = 'idle';

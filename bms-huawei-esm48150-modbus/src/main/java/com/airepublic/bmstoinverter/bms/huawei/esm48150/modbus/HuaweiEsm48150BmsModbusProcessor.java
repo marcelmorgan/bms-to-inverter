@@ -32,7 +32,8 @@ import com.airepublic.bmstoinverter.protocol.modbus.ModbusUtil.RegisterCode;
  * Confirmed register map (mbpoll 1-based / PDU 0-based):
  *   1/0  : pack voltage    (raw ÷ 100 → 0.1V; unit is 0.01V, e.g. 4983 = 49.83V)
  *   2/1  : rated voltage   (informational, same unit)
- *   3/2  : pack current    (signed 0.1A; positive=charge, negative=discharge)
+ *   3/2  : bus current     (signed 0.1A; positive=charge, negative=discharge;
+ *                           each module reports total string current, not individual pack current)
  *   4/3  : SOC             (% × 10 → 0.1%;   e.g. 86 → 860)
  *   5/4  : max charge limit (constant 100; SOH not exposed by this BMS)
  *   6/5  : temp max        (°C × 10 → 0.1°C)
