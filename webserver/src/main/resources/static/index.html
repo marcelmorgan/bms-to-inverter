@@ -512,7 +512,8 @@ function isOffline(idx) {
 function buildPackCard(pack, idx) {
   var soc     = pack.packSOC / 10;
   var voltage = pack.packVoltage / 10;
-  var current = pack.packCurrent / 10;
+  var n       = bmsData.batteryPacks.length || 1;
+  var current = pack.packCurrent / n / 10; // each module reports total bus current; divide by pack count for individual share
   var minV    = pack.minCellmV / 1000;
   var maxV    = pack.maxCellmV / 1000;
   var diff    = (pack.maxCellmV - pack.minCellmV) / 1000;
