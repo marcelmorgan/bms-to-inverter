@@ -20,6 +20,7 @@
   --green:  #22c55e;
   --amber:  #f59e0b;
   --red:    #ef4444;
+  --red-s:  #f87171;
   --bg:     #f1f5f9;
   --card:   #ffffff;
   --border: #e2e8f0;
@@ -97,6 +98,7 @@ main { max-width: 1200px; margin: 0 auto; padding: 16px; display: flex; flex-dir
 .ov-val.amber  { color: var(--amber); }
 .ov-val.red    { color: var(--red); }
 .ov-val.blue   { color: var(--blue); }
+.ov-val.red-s  { color: var(--red-s); }
 .ov-unit { font-size: 14px; font-weight: 500; opacity: .6; }
 .ov-lbl  { font-size: 11px; color: var(--muted); font-weight: 600;
            text-transform: uppercase; letter-spacing: .05em; }
@@ -154,15 +156,11 @@ main { max-width: 1200px; margin: 0 auto; padding: 16px; display: flex; flex-dir
 .soc-row  { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 7px; }
 .soc-pct  { font-size: 30px; font-weight: 800; letter-spacing: -.6px;
             font-variant-numeric: tabular-nums; }
-.soc-pct.high { color: var(--green); }
-.soc-pct.mid  { color: var(--amber); }
-.soc-pct.low  { color: var(--red); }
+.soc-pct { color: var(--muted); }
 .soc-sub  { font-size: 11px; color: var(--muted); font-weight: 500; }
 .soc-track { height: 7px; background: var(--border); border-radius: 99px; overflow: hidden; }
 .soc-fill  { height: 100%; border-radius: 99px; transition: width .8s cubic-bezier(.4,0,.2,1); }
-.soc-fill.high { background: linear-gradient(90deg, #16a34a, var(--green)); }
-.soc-fill.mid  { background: linear-gradient(90deg, #d97706, var(--amber)); }
-.soc-fill.low  { background: linear-gradient(90deg, #dc2626, var(--red)); }
+.soc-fill { background: linear-gradient(90deg, #2563eb, var(--blue)); }
 
 /* Key stats row */
 .card-stats {
@@ -178,7 +176,7 @@ main { max-width: 1200px; margin: 0 auto; padding: 16px; display: flex; flex-dir
 .cs-l { font-size: 10px; color: var(--muted); font-weight: 600;
         text-transform: uppercase; letter-spacing: .04em; }
 .cs-v.pos    { color: var(--green); }
-.cs-v.neg    { color: var(--blue); }
+.cs-v.neg    { color: var(--red-s); }
 .cs-v.warn   { color: var(--amber); }
 .cs-v.danger { color: var(--red); }
 
@@ -451,12 +449,12 @@ function renderOverview() {
 
   var sEl = document.getElementById('ovSoc');
   sEl.textContent = avgSoc.toFixed(1) + '%';
-  sEl.className = 'ov-val ' + socClass(avgSoc);
+  sEl.className = 'ov-val';
 
   var cEl = document.getElementById('ovCurrent');
   var sign = totalA > 0.5 ? '+' : '';
   cEl.textContent = sign + totalA.toFixed(1) + ' A';
-  cEl.className = 'ov-val ' + (totalA > 0.5 ? 'green' : totalA < -0.5 ? 'blue' : '');
+  cEl.className = 'ov-val ' + (totalA > 0.5 ? 'green' : totalA < -0.5 ? 'red-s' : '');
 
   document.getElementById('ovVoltage').textContent = avgV.toFixed(1) + ' V';
 
