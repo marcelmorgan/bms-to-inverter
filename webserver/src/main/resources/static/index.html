@@ -1,273 +1,637 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-<meta http-equiv="Content-Type" content="text/html;charset=utf-8" />
-<meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
-<meta http-equiv="Access-Control-Allow-Origin" content="*">
-<meta name="description" content="">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#1e40af">
 <meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
 <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
 <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
-<link rel="manifest" href="/site.webmanifest"><link rel="stylesheet" href="styles.css">
+<link rel="manifest" href="/site.webmanifest">
+<title>BMS Monitor</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-<title>Bms-To-Inverter</title>
+:root {
+  --blue:   #3b82f6;
+  --blue-d: #1d4ed8;
+  --green:  #22c55e;
+  --amber:  #f59e0b;
+  --red:    #ef4444;
+  --red-s:  #f87171;
+  --bg:     #f1f5f9;
+  --card:   #ffffff;
+  --border: #e2e8f0;
+  --text:   #0f172a;
+  --muted:  #64748b;
+  --r: 14px;
+  --shadow: 0 1px 3px rgba(0,0,0,.07), 0 1px 2px rgba(0,0,0,.05);
+}
+
+html { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; }
+body { background: var(--bg); color: var(--text); min-height: 100vh; }
+
+/* ── Header ─────────────────────────────────────────── */
+.hdr {
+  position: sticky; top: 0; z-index: 100;
+  background: #1e40af;
+  display: flex; align-items: center; gap: 10px;
+  padding: 0 16px; height: 54px;
+  box-shadow: 0 2px 12px rgba(0,0,0,.25);
+}
+.hdr-brand {
+  font-size: 15px; font-weight: 700; color: #fff;
+  letter-spacing: -.2px; white-space: nowrap;
+}
+.hdr-brand span { opacity: .55; font-weight: 400; }
+
+.hdr-conn {
+  margin-left: auto;
+  display: flex; align-items: center; gap: 6px;
+  background: rgba(255,255,255,.13); border-radius: 99px;
+  padding: 5px 12px; font-size: 12px; font-weight: 600; color: #fff;
+}
+.conn-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.conn-dot.ok  { background: #4ade80; }
+.conn-dot.err { background: #f87171; animation: pulse 2s infinite; }
+.conn-dot.idle { background: rgba(255,255,255,.4); }
+
+.hdr-link {
+  margin-left: 8px; color: rgba(255,255,255,.65);
+  text-decoration: none; font-size: 20px; line-height: 1;
+  transition: color .15s;
+}
+.hdr-link:hover { color: #fff; }
+
+@keyframes pulse {
+  0%,100% { opacity: 1; } 50% { opacity: .4; }
+}
+
+/* ── Main layout ─────────────────────────────────────── */
+main { max-width: 1200px; margin: 0 auto; padding: 16px; display: flex; flex-direction: column; gap: 16px; }
+
+/* ── Section label ───────────────────────────────────── */
+.section-lbl {
+  font-size: 11px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .08em; color: var(--muted);
+  padding: 0 2px;
+}
+
+/* ── System overview card ────────────────────────────── */
+.overview {
+  background: var(--card); border-radius: var(--r);
+  box-shadow: var(--shadow); padding: 20px 20px 16px;
+}
+.overview-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+  gap: 16px; margin-top: 12px;
+}
+.ov-stat { display: flex; flex-direction: column; gap: 3px; }
+.ov-val {
+  font-size: 28px; font-weight: 800; letter-spacing: -.6px;
+  line-height: 1; font-variant-numeric: tabular-nums;
+}
+.ov-val.green  { color: var(--green); }
+.ov-val.amber  { color: var(--amber); }
+.ov-val.red    { color: var(--red); }
+.ov-val.blue   { color: var(--blue); }
+.ov-val.red-s  { color: var(--red-s); }
+.ov-unit { font-size: 14px; font-weight: 500; opacity: .6; }
+.ov-lbl  { font-size: 11px; color: var(--muted); font-weight: 600;
+           text-transform: uppercase; letter-spacing: .05em; }
+
+.state-badge {
+  display: inline-flex; align-items: center;
+  padding: 3px 10px; border-radius: 99px;
+  font-size: 12px; font-weight: 700; letter-spacing: .02em;
+}
+.state-badge.charging    { background: #dcfce7; color: #16a34a; }
+.state-badge.discharging { background: #dbeafe; color: #1d4ed8; }
+.state-badge.idle        { background: var(--border); color: var(--muted); }
+.state-badge.sleep       { background: #f3e8ff; color: #7c3aed; }
+
+.overview-footer {
+  margin-top: 12px; font-size: 11px; color: var(--muted);
+  border-top: 1px solid var(--border); padding-top: 10px;
+}
+
+/* ── Pack grid ───────────────────────────────────────── */
+.pack-grid {
+  display: grid; gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+}
+
+/* ── Pack card ───────────────────────────────────────── */
+.pack-card {
+  background: var(--card); border-radius: var(--r);
+  box-shadow: var(--shadow);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+  transition: box-shadow .2s;
+}
+.pack-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,.1); }
+.pack-card.offline { opacity: .5; }
+
+.card-hdr {
+  display: flex; align-items: flex-start;
+  padding: 14px 16px 0; gap: 10px;
+}
+.card-title-wrap { flex: 1; min-width: 0; }
+.card-title { font-size: 14px; font-weight: 700; }
+.card-sub   { font-size: 11px; color: var(--muted); margin-top: 1px;
+              white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.status-dot {
+  width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; margin-top: 4px;
+}
+.status-dot.ok  { background: var(--green); box-shadow: 0 0 0 3px #dcfce7; }
+.status-dot.err { background: var(--red);   box-shadow: 0 0 0 3px #fee2e2;
+                  animation: pulse 2s infinite; }
+.status-dot.idle { background: var(--muted); box-shadow: 0 0 0 3px var(--border); }
+
+/* SOC */
+.soc-wrap { padding: 12px 16px 10px; }
+.soc-row  { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 7px; }
+.soc-pct  { font-size: 30px; font-weight: 800; letter-spacing: -.6px;
+            font-variant-numeric: tabular-nums; }
+.soc-pct { color: var(--muted); }
+.soc-sub  { font-size: 11px; color: var(--muted); font-weight: 500; }
+.soc-track { height: 7px; background: var(--border); border-radius: 99px; overflow: hidden; }
+.soc-fill  { height: 100%; border-radius: 99px; transition: width .8s cubic-bezier(.4,0,.2,1); }
+.soc-fill { background: linear-gradient(90deg, #2563eb, var(--blue)); }
+
+/* Key stats row */
+.card-stats {
+  display: grid; grid-template-columns: repeat(3, 1fr);
+  padding: 10px 16px; gap: 6px;
+  border-top: 1px solid var(--border);
+}
+.cs { display: flex; flex-direction: column; gap: 2px; }
+.cs-v {
+  font-size: 14px; font-weight: 700; letter-spacing: -.2px;
+  font-variant-numeric: tabular-nums;
+}
+.cs-l { font-size: 10px; color: var(--muted); font-weight: 600;
+        text-transform: uppercase; letter-spacing: .04em; }
+.cs-v.pos    { color: var(--green); }
+.cs-v.neg    { color: var(--red-s); }
+.cs-v.warn   { color: var(--amber); }
+.cs-v.danger { color: var(--red); }
+
+/* Cell range */
+.cell-range {
+  display: grid; grid-template-columns: 1fr 1fr 1fr;
+  padding: 8px 16px; gap: 6px;
+  background: var(--bg); border-top: 1px solid var(--border);
+}
+.cr { display: flex; flex-direction: column; gap: 1px; }
+.cr-v { font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.cr-l { font-size: 10px; color: var(--muted); }
+.cr-v.diff-ok   { color: var(--green); }
+.cr-v.diff-warn { color: var(--amber); }
+.cr-v.diff-bad  { color: var(--red); }
+
+/* Expand button */
+.expand-btn {
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 10px 16px; background: none; border: none;
+  border-top: 1px solid var(--border); cursor: pointer;
+  font-size: 12px; color: var(--muted); font-weight: 600;
+  transition: background .12s, color .12s; width: 100%; text-transform: uppercase;
+  letter-spacing: .05em;
+}
+.expand-btn:hover { background: var(--bg); color: var(--text); }
+.expand-icon { transition: transform .22s; display: inline-block; font-style: normal; }
+.expand-btn.open .expand-icon { transform: rotate(180deg); }
+
+/* Cell table */
+.cell-table-wrap { display: none; overflow: hidden; }
+.cell-table-wrap.open { display: block; }
+.cell-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.cell-table th {
+  padding: 7px 12px; text-align: left; font-size: 10px;
+  text-transform: uppercase; letter-spacing: .06em; color: var(--muted);
+  font-weight: 700; border-bottom: 1px solid var(--border); background: var(--bg);
+}
+.cell-table td { padding: 5px 12px; font-variant-numeric: tabular-nums; }
+.cell-table tr:nth-child(odd) td { background: #fafbfc; }
+.cv { font-weight: 600; }
+.cv.lo { color: var(--red); }
+.cv.hi { color: var(--blue-d); }
+.cb { font-size: 11px; font-weight: 600; }
+.cb.on  { color: var(--amber); }
+.cb.off { color: var(--border); }
+
+/* Alarms panel */
+.alarms-wrap { display: none; }
+.alarms-wrap.show { display: block; }
+.alarm-card {
+  background: #fff7ed; border: 1px solid #fed7aa;
+  border-radius: var(--r); padding: 14px 16px;
+}
+.alarm-title {
+  font-size: 11px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .07em; color: #c2410c; margin-bottom: 10px;
+}
+.alarm-item { font-size: 13px; color: #9a3412; padding: 2px 0;
+              display: flex; align-items: center; gap: 6px; }
+.alarm-item::before { content: '⚠'; font-size: 12px; }
+
+/* Subtle value-change highlight on the SOC fill only — no card-level flash */
+
+/* Timestamp */
+.last-update { font-size: 11px; color: var(--muted); text-align: right; padding: 0 2px; }
+
+/* ── Dark mode ───────────────────────────────────────── */
+[data-theme="dark"] {
+  --bg:     #0f172a;
+  --card:   #1e293b;
+  --border: #334155;
+  --text:   #f1f5f9;
+  --muted:  #94a3b8;
+}
+[data-theme="dark"] .hdr                          { background: #172554; }
+[data-theme="dark"] .overview-footer              { border-top-color: #334155; }
+[data-theme="dark"] .cell-range                   { background: #162032; border-top-color: #334155; }
+[data-theme="dark"] .card-stats                   { border-top-color: #334155; }
+[data-theme="dark"] .expand-btn                   { border-top-color: #334155; }
+[data-theme="dark"] .expand-btn:hover             { background: #162032; color: var(--text); }
+[data-theme="dark"] .cell-table th                { background: #162032; border-bottom-color: #334155; }
+[data-theme="dark"] .cell-table tr:nth-child(odd) td { background: #1a2840; }
+[data-theme="dark"] .alarm-card                   { background: #2d1a0e; border-color: #92400e; }
+[data-theme="dark"] .alarm-title                  { color: #fb923c; }
+[data-theme="dark"] .alarm-item                   { color: #fcd34d; }
+[data-theme="dark"] .state-badge.charging         { background: #14532d; color: #86efac; }
+[data-theme="dark"] .state-badge.discharging      { background: #1e3a5f; color: #93c5fd; }
+[data-theme="dark"] .state-badge.idle             { background: #334155; color: #94a3b8; }
+[data-theme="dark"] .state-badge.sleep            { background: #2e1065; color: #c4b5fd; }
+[data-theme="dark"] .soc-track                    { background: #334155; }
+[data-theme="dark"] .bms-entry                    { border-color: #334155; }
+[data-theme="dark"] .bms-entry-head               { background: #162032; border-bottom-color: #334155; }
+
+.hdr-theme {
+  background: none; border: none; cursor: pointer;
+  font-size: 18px; padding: 4px 2px; line-height: 1;
+  opacity: .65; transition: opacity .15s; color: inherit;
+}
+.hdr-theme:hover { opacity: 1; }
+
+/* ── Responsive tweaks ───────────────────────────────── */
+@media (max-width: 480px) {
+  main { padding: 10px; gap: 10px; }
+  .ov-val { font-size: 22px; }
+  .overview-stats { gap: 12px; }
+  .pack-grid { grid-template-columns: 1fr; }
+  .hdr { padding: 0 12px; }
+}
+</style>
 </head>
+<body>
 
-<script type="text/javascript">
-	const selectedBackgroundColor = 'rgb(120, 120, 255)';
-	const selectedColor = 'white';
-	const normalMenuClass = 'bmsMenu';
-	const selectedMenuClass = 'bmsMenu-selected';
-	var selectedBMS = null;
-	var selectedBMSNo = 0;
-	var bmsData = '';
-	var alarmMessages;
-	var dataURL = location.protocol + '//' + location.host + '/data';
-	var alarmsURL = location.protocol + '//' + location.host + '/alarmMessages';
-	
-	function init() {
-		fetchAsync(dataURL)
-		.then(data => {
-			bmsData = data;
-			var menu = document.getElementById('menuPanel');
-			menu.innerHTML = '<div id="bms0" class="bmsMenu" onclick="selectBMS(this)">Overview</div>';
-			
-			for (var i = 0; i < bmsData.batteryPacks.length; i++) {
-				menu.innerHTML += '<div id="bms' + (i + 1) +'" class="bmsMenu" onclick="selectBMS(this)">BMS #' + (i + 1) + '</div>';
-			}
-			
-			selectBMS(document.getElementById('bms0'));
-			window.setInterval(requestData, 2000);
-		})
-		.catch(reason => console.log(reason.message));
-	}
-	
-	async function fetchAsync(url) {
-		const response = await fetch(url);
-		const data = await response.json();
-		return data;
-	}
-	
-	function requestData() {
-		// bms data
-		fetchAsync(dataURL)
-		.then(data => {
-			bmsData = data;
-			refreshView();
+<header class="hdr">
+  <div class="hdr-brand">⚡ BMS<span> Monitor</span></div>
+  <div class="hdr-conn" id="hdrConn">
+    <span class="conn-dot idle" id="hdrDot"></span>
+    <span id="hdrConnText">Connecting…</span>
+  </div>
+  <button class="hdr-theme" id="themeBtn" onclick="toggleTheme()" title="Toggle dark mode"></button>
+  <a class="hdr-link" href="/config.html" title="Configure">&#9881;</a>
+</header>
 
-		})
-    	.catch(reason => console.log(reason.message));
-		
-		// alarm messages
-		fetchAsync(alarmsURL)
-		.then(data => {
-			alarmMessages = data;
-			refreshView();
+<main>
+  <div class="section-lbl">System Overview</div>
+  <div class="overview" id="overview">
+    <div class="overview-stats" id="overviewStats">
+      <div class="ov-stat"><div class="ov-val" id="ovSoc">—</div><div class="ov-lbl">Avg SOC</div></div>
+      <div class="ov-stat"><div class="ov-val" id="ovCurrent">—</div><div class="ov-lbl">Total Current</div></div>
+      <div class="ov-stat"><div class="ov-val" id="ovVoltage">—</div><div class="ov-lbl">Avg Voltage</div></div>
+      <div class="ov-stat"><div id="ovState" class="ov-val" style="font-size:14px;padding-top:4px">—</div><div class="ov-lbl">State</div></div>
+    </div>
+    <div class="overview-footer" id="ovFooter">Waiting for data…</div>
+  </div>
 
-		})
-    	.catch(reason => console.log(reason.message));
+  <div class="section-lbl">Battery Packs</div>
+  <div class="pack-grid" id="packGrid"></div>
 
-	}
-	
-	function updateOverview(element) {
-		
-		// extract overview data
-		var averageSOC = 0;
-		var averageVoltage = 0;
-		var totalCurrent = 0;
-		var chargeState = 'Idle';
-		
-		for (var i = 0; i < bmsData.batteryPacks.length; i++) {
-			var pack = bmsData.batteryPacks[i];
-			
-			totalCurrent += pack.packCurrent;
-			averageSOC += pack.packSOC;
-			averageVoltage += pack.packVoltage;
-			
-			if (pack.chargeDischargeStatus == 1) {
-				chargeState = 'Charge';
-			} else if (pack.chargeDischargeStatus == 2 && (chargeState === 'Idle' || chargeState === 'Sleep')) {
-				chargeState = 'Discharge';
-			} else if (pack.chargeDischargeStatus == 3 && chargeState === 'Idle') {
-				chargeState = 'Sleep';
-			}
-		}
-		
-		averageSOC = averageSOC / bmsData.batteryPacks.length;
-		averageVoltage = averageVoltage / bmsData.batteryPacks.length;
-		
-		
-		
-		var alarms = new Array();
-		var content= '<table>' +
-		'<tr>' +
-		'<td class="overviewDataFieldName" style="text-align:right; width: 50px">SOC</td><td class="overviewDataFieldValue">' + (averageSOC / 10).toFixed(1) + ' %</td>' +
-		'<td class="overviewDataFieldName" style="text-align:right; width: 90px">Voltage</td><td class="overviewDataFieldValue">' + (averageVoltage / 10).toFixed(1) + ' V</td>' +
-		'<td class="overviewDataFieldName" style="text-align:right; width: 90px">Current</td><td class="overviewDataFieldValue">' + (totalCurrent / 10).toFixed(1) + ' A</td>' +
-		'<td class="overviewDataFieldName" style="text-align:right">Charge-State</td><td class="overviewDataFieldValue">' + chargeState + '</td>' +
-		'</tr>' +
-		'</table><br/>';
-		
-		content += '<table>' +
-				'<tr>' +
-					'<td class="overviewDataFieldName" style="text-align: center; width: 50px">BMS</td>' +
-					'<td class="overviewDataFieldName" style="text-align: center; width: 50px">SOC</td>' +
-					'<td class="overviewDataFieldName" style="text-align: center">Voltage</td>' +
-					'<td class="overviewDataFieldName" style="text-align: center">Current</td>' +
-					'<td class="overviewDataFieldName" style="text-align: center">MinCellV</td>' +
-					'<td class="overviewDataFieldName" style="text-align: center">MaxCellV</td>' +
-					'<td class="overviewDataFieldName" style="text-align: center">CellDiff</td>' +
-				'</tr>';
-				
-			for (var i = 0; i < bmsData.batteryPacks.length; i++) {		
-				var pack = bmsData.batteryPacks[i];
-				content += '<tr>' +
-					'<td class="overviewDataFieldValue" style="text-align: center">' + (i + 1) + '</td>' +
-					'<td class="overviewDataFieldValue">' + (pack.packSOC / 10).toFixed(1) + ' %</td>' +
-					'<td class="overviewDataFieldValue">' + (pack.packVoltage / 10).toFixed(1) + ' V</td>' +
-					'<td class="overviewDataFieldValue">' + (pack.packCurrent / 10).toFixed(1) + ' A</td>' +
-					'<td class="overviewDataFieldValue">' + (pack.minCellmV / 1000).toFixed(3) + ' V (#' + pack.minCellVNum.toString().padStart(2, '0') + ')</td>' +
-					'<td class="overviewDataFieldValue">' + (pack.maxCellmV / 1000).toFixed(3) + ' V (#' + pack.maxCellVNum.toString().padStart(2, '0') + ')</td>' +
-					'<td class="overviewDataFieldValue">' + ((pack.maxCellmV - pack.minCellmV) / 1000).toFixed(3) + ' V</td>' +
-				'</tr>';
-				
-				var packAlarms = getAlarmState(i);
-				
-				// add bms no to alarms
-				for (var x = 0; x < packAlarms.length; x++) {
-					packAlarms[x] = 'BMS #' + (i + 1) + ' - ' + packAlarms[x];
-					
-				}
-				
-				alarms = alarms.concat(packAlarms);
-			}
-		content += '</table>';
-		
-		document.getElementById("overviewPanel").innerHTML = content;
-		updateAlarms(alarms);
-	}
-	
-	function selectBMS(element) {
-		if (element != selectedBMS) {
-			if (selectedBMS != null) {
-				selectedBMS.className= normalMenuClass;
-			}
+  <div class="alarms-wrap" id="alarmsWrap">
+    <div class="alarm-card">
+      <div class="alarm-title">Active Alarms</div>
+      <div id="alarmList"></div>
+    </div>
+  </div>
 
-			//element.style.backgroundColor = selectedBackgroundColor;
-			//element.style.color= selectedColor;
-			element.className= selectedMenuClass;
-			selectedBMS = element;
-		}
-		
-		selectedBMSNo = selectedBMS.id.substring(3) - 1;
-	}
-	
-	function refreshView() {
-		document.getElementById("overviewPanel").innerHTML = '';
-		document.getElementById("bmsPanel").innerHTML = '';
-		document.getElementById("cellPanel").innerHTML = '';
-		document.getElementById("alarmPanel").innerHTML = '';
+  <div class="last-update" id="lastUpdate"></div>
+</main>
 
-		if (selectedBMSNo == -1) {
-			updateOverview();
-		} else {
-			updateBMS();
-		}
-	}
-	
-	function updateBMS() {
-		var bmsNo = selectedBMSNo;
-		var chargeState = 'Idle';
-		
-		switch (bmsData.batteryPacks[bmsNo].chargeDischargeStatus) {
-			case 0: chargeState = 'Idle'; break;
-			case 1: chargeState = 'Charge'; break;
-			case 2: chargeState = 'Discharge'; break;
-			case 3: chargeState = 'Sleep'; break;
-			default: chargeState = 'Idle';
-		}
-		
-		//bms panel
-		document.getElementById('bmsPanel').innerHTML = 
-		'<table>' +
-				'<tr>' +
-					'<td class="bmsDataFieldName">Pack-Voltage</td><td id="packVoltageValue" class="bmsDataFieldValue">' + (bmsData.batteryPacks[bmsNo].packVoltage / 10).toFixed(1) + ' V</td>' +
-					'<td class="bmsDataFieldName">Pack-Current</td><td id="packCurrentValue" class="bmsDataFieldValue">' + (bmsData.batteryPacks[bmsNo].packCurrent / 10).toFixed(1) + ' A</td>' +
-					'<td class="bmsDataFieldName">Pack-SOC</td><td id="packSOCValue" class="bmsDataFieldValue">' + (bmsData.batteryPacks[bmsNo].packSOC / 10).toFixed(1) + ' %</td>' +
-				'</tr>' +
-				'<tr>' +
-					'<td class="bmsDataFieldName">Min. Cell Voltage</td><td id="minCellVoltageValue" class="bmsDataFieldValue">' + (bmsData.batteryPacks[bmsNo].minCellmV / 1000).toFixed(3) + ' V (#' + bmsData.batteryPacks[bmsNo].minCellVNum.toString().padStart(2, '0') + ')</td>' +
-					'<td class="bmsDataFieldName">Max. Cell Voltage</td><td id="maxCellVoltageValue" class="bmsDataFieldValue">' + (bmsData.batteryPacks[bmsNo].maxCellmV / 1000).toFixed(3) + ' V (#' + bmsData.batteryPacks[bmsNo].maxCellVNum.toString().padStart(2, '0') + ')</td>' +
-					'<td class="bmsDataFieldName">Cell Diff.</td><td id="cellDiffValue" class="bmsDataFieldValue">' + ((bmsData.batteryPacks[bmsNo].maxCellmV - bmsData.batteryPacks[bmsNo].minCellmV) / 1000).toFixed(3) + ' V</td>' +
-				'</tr>' +
-				'<tr>' +
-					'<td class="bmsDataFieldName">Dis-/Charge Status</td><td id="chargeDischargeStatusValue" class="bmsDataFieldValue">' + chargeState + '</td>' +
-					'<td class="bmsDataFieldName">Charge MOS</td><td id="chargeMOSStateValue" class="bmsDataFieldValue">' + (bmsData.batteryPacks[bmsNo].chargeMOSState ? 'ON' : 'OFF') + '</td>' +
-					'<td class="bmsDataFieldName">Discharge MOS</td><td id="dischargeMOSStateValue" class="bmsDataFieldValue">' + (bmsData.batteryPacks[bmsNo].dischargeMOSState ? 'ON' : 'OFF') + '</td>' +
-				'</tr>' +
-				'</table>';
-		
-		//the cell voltages and status
-		var cellPanel = document.getElementById('cellPanel');
-		var cellTable = '<table class="table"><thead class="tableHeader"><td class="tableHeaderCell">Cell No.</td><td class="tableHeaderCell">Cell Voltage</td><td class="tableHeaderCell">Balancing</td></thead>';
-		
-		for (var i = 0; i < bmsData.batteryPacks[bmsNo].numberOfCells; i++) {
-			cellTable += '<tr><td id="cell' + (i + 1) +'" class="bmsDataFieldName"> Cell #' + (i + 1) + '</td>';
-			cellTable += '<td class="bmsDataFieldValue">' + (bmsData.batteryPacks[bmsNo].cellVmV[i] /1000).toFixed(3) + ' V</td>';
-			cellTable += '<td class="bmsDataFieldValue">' + (bmsData.batteryPacks[bmsNo].cellBalanceState[i] ? 'ON' : 'OFF') +'</td></tr>';
-		}
+<script>
+/* Theme — run immediately to avoid flash */
+(function() {
+  var t = localStorage.getItem('bms-theme') || 'light';
+  document.documentElement.setAttribute('data-theme', t);
+})();
 
-		cellTable += "</table>"
-		cellPanel.innerHTML = cellTable;
-		
-		var alarms = getAlarmState(bmsNo);
-		updateAlarms(alarms);
-	}
-	
-	function updateAlarms(alarms) {
-		//alarms
-		var alarmsPanel = document.getElementById('alarmPanel');
-		var alarmsTable = '<table class="table" style="width:100%"><thead class="tableHeader"><td class="tableHeaderCell">Alarms</td></thead>';
-		
-		for (var i = 0; i < alarms.length; i++) {
-			alarmsTable += '<tr><td class="alarmField">' + alarms[i] + '</td></tr>';
-		}
-		
-		alarmsTable += "</table>"
-		alarmPanel.innerHTML = alarmsTable;
+function toggleTheme() {
+  var t = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', t);
+  localStorage.setItem('bms-theme', t);
+  document.getElementById('themeBtn').textContent = t === 'dark' ? '☀' : '🌙';
+}
 
-	}
-	
-	function getAlarmState(bmsNo) {
-		var alarms = new Array();
-		var idx = 0;
-		var map = new Map(Object.entries(bmsData.batteryPacks[bmsNo].alarms));
-		
-		for (let [key, value] of map) {
-			
-			if (value != 'NONE') {
-				alarms[idx++] = value + ': ' + key;
-			}
-		}
-		
-		return alarms;
-	}
-	
-	
+var bmsData    = null;
+var statusData = null;
+var alarmMsgs  = {};
+var evtSource  = null;
+var lastUpdate = null;
+var updateTimer = null;
+
+var dataURL   = location.protocol + '//' + location.host + '/data';
+var sseURL    = location.protocol + '//' + location.host + '/api/data/stream';
+var statusURL = location.protocol + '//' + location.host + '/api/status';
+var alarmsURL = location.protocol + '//' + location.host + '/alarmMessages';
+
+/* ── Bootstrap ─────────────────────────────────────── */
+function init() {
+  document.getElementById('themeBtn').textContent =
+    document.documentElement.getAttribute('data-theme') === 'dark' ? '☀' : '🌙';
+
+  fetch(dataURL).then(r => r.json()).then(d => {
+    bmsData = d;
+    renderAll();
+    connectSSE();
+    refreshStatus();
+    setInterval(refreshStatus, 10000);
+    setInterval(updateRelTime, 5000);
+  }).catch(e => console.error('init failed', e));
+
+  fetch(alarmsURL).then(r => r.json()).then(d => { alarmMsgs = d; }).catch(() => {});
+}
+
+/* ── SSE ────────────────────────────────────────────── */
+function connectSSE() {
+  if (evtSource) evtSource.close();
+  evtSource = new EventSource(sseURL);
+  evtSource.onopen = () => setHdrConn(true);
+  evtSource.onmessage = e => {
+    try {
+      bmsData = JSON.parse(e.data);
+      lastUpdate = new Date();
+      renderAll();
+    } catch(_) {}
+  };
+  evtSource.onerror = () => {
+    setHdrConn(false);
+    evtSource.close();
+    setTimeout(connectSSE, 5000);
+  };
+}
+
+function setHdrConn(ok) {
+  document.getElementById('hdrDot').className = 'conn-dot ' + (ok ? 'ok' : 'err');
+}
+
+/* ── Status refresh ─────────────────────────────────── */
+function refreshStatus() {
+  fetch(statusURL).then(r => r.json()).then(d => {
+    statusData = d;
+    updateConnHeader();
+    renderPackGrid(); // re-render dots
+  }).catch(() => {});
+}
+
+function updateConnHeader() {
+  if (!statusData) return;
+  var total = statusData.bms ? statusData.bms.length : 0;
+  var conn  = statusData.bms ? statusData.bms.filter(b => b.connected).length : 0;
+  var invOk = statusData.inverter && statusData.inverter.connected;
+  var all   = (conn === total) && invOk;
+  document.getElementById('hdrDot').className = 'conn-dot ' + (all ? 'ok' : 'err');
+  document.getElementById('hdrConnText').textContent =
+    conn + '/' + total + ' BMS · Inv ' + (invOk ? '✓' : '✗');
+}
+
+/* ── Relative time ──────────────────────────────────── */
+function updateRelTime() {
+  if (!lastUpdate) return;
+  var s = Math.round((new Date() - lastUpdate) / 1000);
+  var txt = s < 5 ? 'just now' : s < 60 ? s + 's ago' : Math.round(s/60) + 'm ago';
+  document.getElementById('lastUpdate').textContent = 'Last update: ' + txt;
+}
+
+/* ── Render everything ──────────────────────────────── */
+function renderAll() {
+  if (!bmsData || !bmsData.batteryPacks) return;
+  renderOverview();
+  renderPackGrid();
+  renderAlarms();
+  updateRelTime();
+}
+
+/* ── Overview ───────────────────────────────────────── */
+function renderOverview() {
+  var packs = bmsData.batteryPacks;
+  var n = packs.length;
+  if (!n) return;
+
+  var avgSoc = packs.reduce((s, p) => s + p.packSOC, 0) / n / 10;
+  // Each ESM-48150B1 reports total bus current (not individual pack current),
+  // so average rather than sum across all packs.
+  var totalA = packs.reduce((s, p) => s + p.packCurrent, 0) / n / 10;
+  var avgV   = packs.reduce((s, p) => s + p.packVoltage, 0) / n / 10;
+
+  var state = 'idle';
+  packs.forEach(p => {
+    if (p.chargeDischargeStatus === 1) state = 'charging';
+    else if (p.chargeDischargeStatus === 2 && state !== 'charging') state = 'discharging';
+    else if (p.chargeDischargeStatus === 3 && state === 'idle') state = 'sleep';
+  });
+
+  var sEl = document.getElementById('ovSoc');
+  sEl.textContent = avgSoc.toFixed(1) + '%';
+  sEl.className = 'ov-val';
+
+  var cEl = document.getElementById('ovCurrent');
+  var sign = totalA > 0.5 ? '+' : '';
+  cEl.textContent = sign + totalA.toFixed(1) + ' A';
+  cEl.className = 'ov-val ' + (totalA > 0.5 ? 'green' : totalA < -0.5 ? 'red-s' : '');
+
+  document.getElementById('ovVoltage').textContent = avgV.toFixed(1) + ' V';
+
+  var stateLabels = { idle:'Idle', charging:'Charging', discharging:'Discharging', sleep:'Sleep' };
+  document.getElementById('ovState').innerHTML =
+    '<span class="state-badge ' + state + '">' + (stateLabels[state] || state) + '</span>';
+
+  var inv = statusData && statusData.inverter;
+  var foot = n + ' pack' + (n!==1?'s':'');
+  if (inv) foot += ' · Inverter: ' + inv.type;
+  document.getElementById('ovFooter').textContent = foot;
+}
+
+/* ── Pack grid ──────────────────────────────────────── */
+function renderPackGrid() {
+  var packs = bmsData && bmsData.batteryPacks;
+  if (!packs) return;
+  var grid = document.getElementById('packGrid');
+
+  // Build or update each card (avoid full re-render to preserve expanded state)
+  packs.forEach((pack, idx) => {
+    var cardId = 'pack-card-' + idx;
+    var existing = document.getElementById(cardId);
+    var html = buildPackCard(pack, idx);
+    if (!existing) {
+      var div = document.createElement('div');
+      div.id = cardId;
+      div.className = 'pack-card' + (isOffline(idx) ? ' offline' : '');
+      div.innerHTML = html;
+      grid.appendChild(div);
+    } else {
+      // Update only the parts that change (preserve expanded cell state)
+      var wasOpen = existing.querySelector('.cell-table-wrap.open') !== null;
+      existing.className = 'pack-card' + (isOffline(idx) ? ' offline' : '');
+      existing.innerHTML = html;
+      if (wasOpen) {
+        var wrap = existing.querySelector('.cell-table-wrap');
+        var btn  = existing.querySelector('.expand-btn');
+        if (wrap) { wrap.classList.add('open'); btn && btn.classList.add('open'); }
+      }
+    }
+  });
+
+  // Remove stale cards
+  var cards = grid.querySelectorAll('.pack-card');
+  for (var i = packs.length; i < cards.length; i++) grid.removeChild(cards[i]);
+}
+
+function isOffline(idx) {
+  return statusData && statusData.bms && statusData.bms[idx] && !statusData.bms[idx].connected;
+}
+
+function buildPackCard(pack, idx) {
+  var soc     = pack.packSOC / 10;
+  var voltage = pack.packVoltage / 10;
+  var n       = bmsData.batteryPacks.length || 1;
+  var current = pack.packCurrent / n / 10; // each module reports total bus current; divide by pack count for individual share
+  var minV    = pack.minCellmV / 1000;
+  var maxV    = pack.maxCellmV / 1000;
+  var diff    = (pack.maxCellmV - pack.minCellmV) / 1000;
+  var cls     = socClass(soc);
+
+  var st = statusData && statusData.bms && statusData.bms[idx];
+  var dotCls = st ? (st.connected ? 'ok' : 'err') : 'idle';
+  var sub = st ? shortPath(st.portLocator) : '';
+
+  var stateMap = {0:'Idle',1:'Charging',2:'Discharging',3:'Sleep'};
+  var stateTxt = stateMap[pack.chargeDischargeStatus] || 'Idle';
+
+  var currSign  = current > 0.5 ? '+' : '';
+  var currClass = current > 0.5 ? 'pos' : current < -0.5 ? 'neg' : '';
+
+  var diffClass = diff < 0.020 ? 'diff-ok' : diff < 0.050 ? 'diff-warn' : 'diff-bad';
+
+  var chargeState =
+    pack.chargeDischargeStatus === 1 ? 'Charge MOS: ' + (pack.chargeMOSState?'ON':'OFF') :
+    pack.chargeDischargeStatus === 2 ? 'Discharge MOS: ' + (pack.dischargeMOSState?'ON':'OFF') : '';
+
+  // Cells
+  var cellRows = '';
+  var minIdx = pack.minCellVNum;
+  var maxIdx = pack.maxCellVNum;
+  for (var i = 0; i < pack.numberOfCells; i++) {
+    var cv = (pack.cellVmV[i] / 1000).toFixed(3);
+    var isMin = (i === minIdx) || (i+1 === minIdx);
+    var isMax = (i === maxIdx) || (i+1 === maxIdx);
+    var cvCls = isMin ? 'cv lo' : isMax ? 'cv hi' : 'cv';
+    var bal = pack.cellBalanceState && pack.cellBalanceState[i];
+    cellRows += '<tr><td>#' + (i+1) + '</td>' +
+      '<td><span class="' + cvCls + '">' + cv + ' V</span></td>' +
+      '<td><span class="cb ' + (bal?'on':'off') + '">' + (bal?'BAL':'—') + '</span></td></tr>';
+  }
+
+  return '' +
+  '<div class="card-hdr">' +
+    '<div class="card-title-wrap">' +
+      '<div class="card-title">BMS #' + (idx+1) + '</div>' +
+      (sub ? '<div class="card-sub">' + sub + '</div>' : '') +
+    '</div>' +
+    '<span class="status-dot ' + dotCls + '"></span>' +
+  '</div>' +
+
+  '<div class="soc-wrap">' +
+    '<div class="soc-row">' +
+      '<span class="soc-pct ' + cls + '">' + soc.toFixed(1) + '%</span>' +
+      '<span class="soc-sub">' + stateTxt + (chargeState ? ' · ' + chargeState : '') + '</span>' +
+    '</div>' +
+    '<div class="soc-track"><div class="soc-fill ' + cls + '" style="width:' + Math.max(2,soc) + '%"></div></div>' +
+  '</div>' +
+
+  '<div class="card-stats">' +
+    '<div class="cs"><div class="cs-v">' + voltage.toFixed(1) + ' V</div><div class="cs-l">Voltage</div></div>' +
+    '<div class="cs"><div class="cs-v ' + currClass + '">' + currSign + current.toFixed(1) + ' A</div><div class="cs-l">Current</div></div>' +
+    '<div class="cs"><div class="cs-v">' + (pack.packSOH !== undefined ? (pack.packSOH/10).toFixed(0)+'%' : '—') + '</div><div class="cs-l">SOH</div></div>' +
+  '</div>' +
+
+  '<div class="cell-range">' +
+    '<div class="cr"><div class="cr-v">' + minV.toFixed(3) + ' V</div><div class="cr-l">↓ Min #' + pack.minCellVNum + '</div></div>' +
+    '<div class="cr"><div class="cr-v">' + maxV.toFixed(3) + ' V</div><div class="cr-l">↑ Max #' + pack.maxCellVNum + '</div></div>' +
+    '<div class="cr"><div class="cr-v ' + diffClass + '">Δ ' + (diff*1000).toFixed(0) + ' mV</div><div class="cr-l">Cell diff</div></div>' +
+  '</div>' +
+
+  (pack.numberOfCells > 0 ?
+  '<button class="expand-btn" onclick="toggleCells(this)">' +
+    '<span class="expand-icon">▾</span> ' + pack.numberOfCells + ' cells' +
+  '</button>' +
+  '<div class="cell-table-wrap">' +
+    '<table class="cell-table">' +
+      '<thead><tr><th>#</th><th>Voltage</th><th>Balance</th></tr></thead>' +
+      '<tbody>' + cellRows + '</tbody>' +
+    '</table>' +
+  '</div>'
+  : '');
+}
+
+/* ── Alarms ─────────────────────────────────────────── */
+function renderAlarms() {
+  var packs = bmsData.batteryPacks;
+  var items = [];
+  packs.forEach((pack, idx) => {
+    var map = pack.alarms || {};
+    Object.entries(map).forEach(([k, v]) => {
+      if (v && v !== 'NONE') {
+        var label = alarmMsgs[k] || k;
+        items.push('BMS #' + (idx+1) + ' — ' + v + ': ' + label);
+      }
+    });
+  });
+
+  var wrap = document.getElementById('alarmsWrap');
+  var list = document.getElementById('alarmList');
+  if (items.length) {
+    list.innerHTML = items.map(a => '<div class="alarm-item">' + a + '</div>').join('');
+    wrap.classList.add('show');
+  } else {
+    wrap.classList.remove('show');
+  }
+}
+
+/* ── Helpers ────────────────────────────────────────── */
+function socClass(soc) {
+  return soc >= 60 ? 'high' : soc >= 30 ? 'mid' : 'low';
+}
+
+function shortPath(p) {
+  if (!p) return '';
+  if (p.startsWith('/dev/serial/by-id/')) return p.replace('/dev/serial/by-id/', '');
+  return p;
+}
+
+function toggleCells(btn) {
+  btn.classList.toggle('open');
+  var wrap = btn.nextElementSibling;
+  if (wrap) wrap.classList.toggle('open');
+}
+
+init();
 </script>
-
-<body onload="init()">
-	<div id="mainPanel" class="mainPanel">
-		<div id="headerPanel" class="headerPanel">BMS-to-Inverter</div>
-		<div id="menuPanel" ></div>
-		<div id="viewPanel">
-			<div id="overviewPanel"></div>
-			<div id="bmsPanel"></div>
-			<div id="cellPanel"></div>
-			<div id="alarmPanel"></div>
-		</div>
-	</div>
 </body>
 </html>

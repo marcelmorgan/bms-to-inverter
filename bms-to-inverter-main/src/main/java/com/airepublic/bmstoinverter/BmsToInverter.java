@@ -13,10 +13,12 @@ package com.airepublic.bmstoinverter;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.ServiceLoader;
+import java.util.concurrent.ConcurrentHashMap;
 
 import javax.annotation.PostConstruct;
 import javax.enterprise.context.ApplicationScoped;
@@ -69,6 +71,8 @@ public class BmsToInverter implements AutoCloseable {
     private IEmailService emailService;
     private IWebServerService webServerService;
     private List<String> lastAlarms = new ArrayList<>();
+    private final Map<Integer, Instant> bmsLastSuccess = new ConcurrentHashMap<>();
+    private volatile Instant inverterLastSuccess = null;
 
     /**
      * The main method to start the application.
@@ -248,6 +252,7 @@ public class BmsToInverter implements AutoCloseable {
 
         try {
             webServerService.start(Integer.parseInt(System.getProperty("webserver.http.port", "8080")), Integer.parseInt(System.getProperty("webserver.https.port", "8443")), energyStorage);
+            webServerService.setStatusSupplier(this::getStatusJson);
         } catch (final Exception e) {
             LOG.error("Could not start webserver service!", e);
         }
@@ -289,6 +294,7 @@ public class BmsToInverter implements AutoCloseable {
                         try {
                             LOG.info("Reading BMS #" + bms.getBmsId() + " " + bms.getName() + " on " + bms.getPortLocator() + "...");
                             bms.process(() -> receivedData());
+                            bmsLastSuccess.put(bms.getBmsId(), Instant.now());
                         } catch (final Throwable e) {
                         }
                     }
@@ -315,6 +321,7 @@ public class BmsToInverter implements AutoCloseable {
                         try {
                             LOG.info("Sending to inverter " + inverter.getName() + " on " + inverter.getPortLocator() + "...");
                             inverter.process(() -> sentData());
+                            inverterLastSuccess = Instant.now();
                             Thread.sleep(inverter.getSendInterval() * 1000);
                         } catch (final Throwable e) {
                         }
@@ -377,6 +384,10 @@ public class BmsToInverter implements AutoCloseable {
             }
 
             analyseBMSFaults();
+
+            if (webServerService != null) {
+                webServerService.onDataUpdated(energyStorage.toJson());
+            }
         } catch (final Throwable e) {
             LOG.error("Error after data received!", e);
         }
@@ -387,6 +398,34 @@ public class BmsToInverter implements AutoCloseable {
      * Called after the data was sent to the inverter.
      */
     private void sentData() {
+    }
+
+
+    private String getStatusJson() {
+        final StringBuilder sb = new StringBuilder("{\"bms\":[");
+        boolean first = true;
+        for (final BMS bms : bmsList) {
+            if (!first) {
+                sb.append(",");
+            }
+            first = false;
+            final Instant last = bmsLastSuccess.get(bms.getBmsId());
+            final boolean connected = last != null && last.isAfter(Instant.now().minusSeconds(30));
+            sb.append("{\"id\":").append(bms.getBmsId())
+                    .append(",\"portLocator\":\"").append(bms.getPortLocator()).append("\"")
+                    .append(",\"lastReadOk\":\"").append(last != null ? last.toString() : "never").append("\"")
+                    .append(",\"connected\":").append(connected).append("}");
+        }
+        sb.append("],\"inverter\":{");
+        if (inverter != null) {
+            final boolean connected = inverterLastSuccess != null && inverterLastSuccess.isAfter(Instant.now().minusSeconds(30));
+            sb.append("\"type\":\"").append(inverter.getName()).append("\"")
+                    .append(",\"portLocator\":\"").append(inverter.getPortLocator()).append("\"")
+                    .append(",\"lastWriteOk\":\"").append(inverterLastSuccess != null ? inverterLastSuccess.toString() : "never").append("\"")
+                    .append(",\"connected\":").append(connected);
+        }
+        sb.append("}}");
+        return sb.toString();
     }
 
 
