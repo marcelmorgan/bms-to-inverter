@@ -331,8 +331,16 @@ public class WebServer implements IWebServerService {
         ModbusSerialMaster master = null;
 
         try {
+            // j2mod expects bare names like "ttyUSB0", not "/dev/ttyUSB0" or by-id symlinks
+            String resolvedPort = portName;
+            try {
+                final Path p = Paths.get(portName);
+                resolvedPort = (Files.isSymbolicLink(p) ? p.toRealPath() : p).getFileName().toString();
+            } catch (final Exception ignored) {
+            }
+
             final SerialParameters params = new SerialParameters();
-            params.setPortName(portName);
+            params.setPortName(resolvedPort);
             params.setBaudRate(baudRate);
             params.setDatabits(8);
             params.setParity("None");
