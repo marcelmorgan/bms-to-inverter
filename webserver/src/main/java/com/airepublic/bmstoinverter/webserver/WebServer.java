@@ -211,15 +211,19 @@ public class WebServer implements IWebServerService {
                         endId = Integer.parseInt(request.getParameter("endId"));
                     } catch (final Exception ignored) {
                     }
-                    response.setContentType("application/json; charset=utf-8");
+                    response.setContentType("text/event-stream");
+                    response.setCharacterEncoding("UTF-8");
+                    response.setHeader("Cache-Control", "no-cache");
+                    response.setHeader("Connection", "keep-alive");
                     response.setHeader("Access-Control-Allow-Origin", "*");
-                    if (portParam == null || portParam.isEmpty()) {
-                        response.setStatus(400);
-                        response.getWriter().write("{\"error\":\"port parameter required\"}");
-                    } else {
-                        response.getWriter().write(scanModbus(portParam, baudRate, startId, endId));
-                    }
                     baseRequest.setHandled(true);
+                    final PrintWriter sse = response.getWriter();
+                    if (portParam == null || portParam.isEmpty()) {
+                        sse.write("data: {\"type\":\"error\",\"message\":\"port parameter required\"}\n\n");
+                        sse.flush();
+                    } else {
+                        scanModbusStreaming(portParam, baudRate, startId, endId, sse);
+                    }
                     return;
                 }
 
@@ -329,40 +333,37 @@ public class WebServer implements IWebServerService {
     }
 
 
-    private String scanModbus(final String portName, final int baudRate, final int startId, final int endId) {
-        final List<Integer> found = new ArrayList<>();
-        String error = null;
-
-        // If the BMS service is running, borrow its already-open port from PortAllocator.
-        // This avoids the exclusive-lock conflict and keeps the web server alive.
+    private void scanModbusStreaming(final String portName, final int baudRate,
+            final int startId, final int endId, final PrintWriter out) {
+        final int total = endId - startId + 1;
         final String allocKey = findAllocatorKey(portName);
 
         if (allocKey != null) {
-            LOG.info("Modbus scan using shared PortAllocator port: {}", allocKey);
+            LOG.info("Modbus scan (shared port) {}", allocKey);
             final Port port = PortAllocator.allocate(allocKey);
             try {
                 port.clearBuffers();
                 for (int unitId = startId; unitId <= endId; unitId++) {
+                    sseSend(out, "{\"type\":\"progress\",\"current\":" + unitId + ",\"total\":" + total + "}");
                     try {
                         port.sendFrame(ModbusUtil.createRequestBuffer(RegisterCode.READ_HOLDING_REGISTERS, 0, 1, unitId));
-                        final java.nio.ByteBuffer response = port.receiveFrame();
-                        if (response != null) {
-                            found.add(unitId);
+                        if (port.receiveFrame() != null) {
+                            sseSend(out, "{\"type\":\"found\",\"address\":" + unitId + "}");
                         }
                     } catch (final Exception ignored) {
                     }
                 }
+                sseSend(out, "{\"type\":\"done\",\"scanned\":" + total + "}");
             } catch (final Exception e) {
-                error = e.getMessage();
-                LOG.warn("Modbus scan error (allocator path) on {}: {}", portName, e.getMessage());
+                sseSend(out, "{\"type\":\"error\",\"message\":\"" + escJson(e.getMessage()) + "\"}");
             } finally {
                 PortAllocator.free(allocKey);
             }
         } else {
-            // Port not managed by PortAllocator — open it directly using jSerialComm.
-            // We avoid j2mod's SerialConnection here because it tries to configure kernel
-            // RS485 mode which fails on FTDI USB adapters; plain jSerialComm works fine.
-            LOG.info("Modbus scan opening port directly via jSerialComm: {}", portName);
+            // Port not managed by PortAllocator — open directly via jSerialComm.
+            // j2mod's SerialConnection tries to set kernel RS485 mode which fails on FTDI
+            // USB adapters; plain jSerialComm (same lib Python uses) works fine.
+            LOG.info("Modbus scan (direct jSerialComm) {}", portName);
             com.fazecast.jSerialComm.SerialPort comPort = null;
             try {
                 String devPath = portName;
@@ -378,42 +379,48 @@ public class WebServer implements IWebServerService {
                 comPort.setNumStopBits(com.fazecast.jSerialComm.SerialPort.ONE_STOP_BIT);
                 comPort.setParity(com.fazecast.jSerialComm.SerialPort.NO_PARITY);
                 comPort.setComPortTimeouts(
-                    com.fazecast.jSerialComm.SerialPort.TIMEOUT_READ_BLOCKING, 300, 0);
+                        com.fazecast.jSerialComm.SerialPort.TIMEOUT_READ_BLOCKING, 300, 0);
 
                 if (!comPort.openPort()) {
-                    error = "Could not open port " + devPath;
-                } else {
-                    for (int unitId = startId; unitId <= endId; unitId++) {
-                        try {
-                            // Drain any stale bytes before sending
-                            final int avail = comPort.bytesAvailable();
-                            if (avail > 0) {
-                                comPort.readBytes(new byte[avail], avail);
-                            }
+                    sseSend(out, "{\"type\":\"error\",\"message\":\"Could not open port " + escJson(devPath) + "\"}");
+                    return;
+                }
 
-                            comPort.writeBytes(modbusRtuRequest(unitId), 8);
-
-                            // Wait up to 300 ms for the first byte; if it echoes back
-                            // the unit ID the device is present
-                            final byte[] resp = new byte[1];
-                            if (comPort.readBytes(resp, 1) > 0 && (resp[0] & 0xFF) == unitId) {
-                                found.add(unitId);
-                            }
-                        } catch (final Exception ignored) {
+                for (int unitId = startId; unitId <= endId; unitId++) {
+                    sseSend(out, "{\"type\":\"progress\",\"current\":" + unitId + ",\"total\":" + total + "}");
+                    try {
+                        final int avail = comPort.bytesAvailable();
+                        if (avail > 0) {
+                            comPort.readBytes(new byte[avail], avail);
                         }
+                        comPort.writeBytes(modbusRtuRequest(unitId), 8);
+                        final byte[] resp = new byte[1];
+                        if (comPort.readBytes(resp, 1) > 0 && (resp[0] & 0xFF) == unitId) {
+                            sseSend(out, "{\"type\":\"found\",\"address\":" + unitId + "}");
+                        }
+                    } catch (final Exception ignored) {
                     }
                 }
+                sseSend(out, "{\"type\":\"done\",\"scanned\":" + total + "}");
             } catch (final Exception e) {
-                error = e.getMessage();
-                LOG.warn("Modbus scan error on {}: {}", portName, e.getMessage());
+                sseSend(out, "{\"type\":\"error\",\"message\":\"" + escJson(e.getMessage()) + "\"}");
             } finally {
                 if (comPort != null && comPort.isOpen()) {
                     comPort.closePort();
                 }
             }
         }
+    }
 
-        return buildScanResult(found, endId - startId + 1, error);
+
+    private void sseSend(final PrintWriter out, final String json) {
+        out.write("data: " + json + "\n\n");
+        out.flush();
+    }
+
+
+    private String escJson(final String s) {
+        return s == null ? "" : s.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
 
@@ -471,21 +478,6 @@ public class WebServer implements IWebServerService {
     }
 
 
-    private String buildScanResult(final List<Integer> found, final int scanned, final String error) {
-        final StringBuilder sb = new StringBuilder("{\"found\":[");
-        for (int i = 0; i < found.size(); i++) {
-            if (i > 0) sb.append(",");
-            sb.append(found.get(i));
-        }
-        sb.append("],\"scanned\":").append(scanned);
-        if (error != null) {
-            sb.append(",\"error\":\"").append(error.replace("\\", "\\\\").replace("\"", "\\\"")).append("\"");
-        } else {
-            sb.append(",\"error\":null");
-        }
-        sb.append("}");
-        return sb.toString();
-    }
 
 
     private String getPortsJson() {

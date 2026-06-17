@@ -542,6 +542,8 @@ function v(id) {
   return el ? el.value : '';
 }
 
+var activeScanEs = null;
+
 function startScan() {
   var port = v('scanPort');
   var baud = parseInt(v('scanBaud')) || 9600;
@@ -550,67 +552,76 @@ function startScan() {
 
   if (!port) { alert('Please select a port'); return; }
 
+  if (activeScanEs) { activeScanEs.close(); activeScanEs = null; }
+
   var btn = document.getElementById('scanBtn');
   var status = document.getElementById('scanStatus');
   var results = document.getElementById('scanResults');
+  var list = document.getElementById('scanResultsList');
 
   btn.disabled = true;
   btn.textContent = 'Scanning…';
   status.style.display = '';
-  var estSecs = Math.ceil((end - start + 1) * 0.35);
-  status.innerHTML = '<div class="scan-progress">Scanning addresses ' + start + '–' + end + '…<br>' +
-    '<small>May take up to ' + (estSecs >= 60 ? Math.ceil(estSecs / 60) + ' minute(s)' : estSecs + ' seconds') + ' if no devices respond.</small></div>';
-  results.style.display = 'none';
+  status.innerHTML = '<div class="scan-progress" id="scanCounter">Probing address 1 of ' + (end - start + 1) + '…</div>';
+  results.style.display = '';
+  list.innerHTML = '';
+  var foundCount = 0;
 
   var url = '/api/scan/modbus?port=' + encodeURIComponent(port) +
     '&baudRate=' + baud + '&startId=' + start + '&endId=' + end;
 
-  fetch(url, { signal: AbortSignal.timeout ? AbortSignal.timeout(300000) : undefined })
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
-      btn.disabled = false;
-      btn.textContent = 'Scan';
+  var es = new EventSource(url);
+  activeScanEs = es;
+
+  es.onmessage = function(evt) {
+    var data = JSON.parse(evt.data);
+
+    if (data.type === 'progress') {
+      var counter = document.getElementById('scanCounter');
+      if (counter) counter.textContent = 'Probing address ' + data.current + ' of ' + data.total + '…';
+
+    } else if (data.type === 'found') {
+      foundCount++;
+      var already = isBmsAddressConfigured(data.address);
+      var row = document.createElement('div');
+      row.className = 'scan-result-row';
+      row.id = 'scan-result-' + data.address;
+      row.innerHTML =
+        '<span class="scan-result-addr">Address ' + data.address + '</span>' +
+        (already
+          ? '<span class="scan-result-added">✓ Already configured</span>'
+          : '<button class="btn btn-ghost btn-sm" onclick="addFromScan(' + data.address + ')">+ Add</button>');
+      list.appendChild(row);
+
+    } else if (data.type === 'done') {
+      es.close(); activeScanEs = null;
+      btn.disabled = false; btn.textContent = 'Scan';
       status.style.display = 'none';
-      renderScanResults(data, port, baud);
-    })
-    .catch(function(err) {
-      btn.disabled = false;
-      btn.textContent = 'Scan';
-      status.innerHTML = '<div class="scan-error">Scan failed: ' + err + '</div>';
-    });
+      if (foundCount === 0) {
+        list.innerHTML = '<div style="color:var(--muted);font-size:14px">No devices responded. Check port, baud rate, and that the batteries are powered on.</div>';
+      } else {
+        var hdr = document.createElement('div');
+        hdr.style = 'font-size:13px;font-weight:700;color:var(--muted);margin-bottom:8px';
+        hdr.textContent = 'Found ' + foundCount + ' device(s) — scanned ' + data.scanned + ' addresses';
+        list.insertBefore(hdr, list.firstChild);
+      }
+
+    } else if (data.type === 'error') {
+      es.close(); activeScanEs = null;
+      btn.disabled = false; btn.textContent = 'Scan';
+      status.style.display = 'none';
+      list.innerHTML = '<div class="scan-error">' + esc(data.message) + '</div>';
+    }
+  };
+
+  es.onerror = function() {
+    if (es.readyState === EventSource.CLOSED) return;
+    es.close(); activeScanEs = null;
+    btn.disabled = false; btn.textContent = 'Scan';
+    status.innerHTML = '<div class="scan-error">Connection to scanner lost.</div>';
+  };
 }
 
-function renderScanResults(data, port, baud) {
-  var results = document.getElementById('scanResults');
-  var list = document.getElementById('scanResultsList');
-  results.style.display = '';
-
-  if (data.error) {
-    list.innerHTML = '<div class="scan-error">' + esc(data.error) + '</div>';
-    return;
-  }
-
-  if (!data.found || data.found.length === 0) {
-    list.innerHTML = '<div style="color:var(--muted);font-size:14px">' +
-      'No devices responded in that range. Check the port, baud rate, and that the batteries are powered on.' +
-      '</div>';
-    return;
-  }
-
-  var html = '<div style="font-size:13px;font-weight:700;color:var(--muted);margin-bottom:8px">' +
-    'Found ' + data.found.length + ' device(s) — scanned ' + data.scanned + ' addresses</div>';
-  data.found.forEach(function(addr) {
-    var already = isBmsAddressConfigured(addr);
-    html += '<div class="scan-result-row" id="scan-result-' + addr + '">' +
-      '<span class="scan-result-addr">Address ' + addr + '</span>' +
-      (already
-        ? '<span class="scan-result-added">✓ Already configured</span>'
-        : '<button class="btn btn-ghost btn-sm" onclick="addFromScan(' + addr + ')">+ Add</button>'
-      ) +
-      '</div>';
-  });
-  list.innerHTML = html;
-}
 
 function isBmsAddressConfigured(addr) {
   var found = false;
