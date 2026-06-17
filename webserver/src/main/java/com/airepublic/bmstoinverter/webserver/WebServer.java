@@ -449,7 +449,25 @@ public class WebServer implements IWebServerService {
         final ConstraintSecurityHandler security = new ConstraintSecurityHandler();
         security.setLoginService(loginService);
 
-        final FormAuthenticator formAuthenticator = new FormAuthenticator("/login.html", "/login.html?error=true", false);
+        final FormAuthenticator formAuthenticator = new FormAuthenticator("/login.html", "/login.html?error=true", false) {
+            @Override
+            public org.eclipse.jetty.server.Authentication validateRequest(final javax.servlet.ServletRequest req,
+                    final javax.servlet.ServletResponse res, final boolean mandatory)
+                    throws org.eclipse.jetty.security.ServerAuthException {
+                // If Jetty saved an API endpoint as the post-login redirect URL, replace
+                // it with the root so the user lands on the dashboard instead.
+                final javax.servlet.http.HttpSession session =
+                        ((javax.servlet.http.HttpServletRequest) req).getSession(false);
+                if (session != null) {
+                    final String saved = (String) session.getAttribute("org.eclipse.jetty.security.form.URI");
+                    if (saved != null && saved.contains("/api/")) {
+                        session.setAttribute("org.eclipse.jetty.security.form.URI",
+                                ((javax.servlet.http.HttpServletRequest) req).getContextPath() + "/");
+                    }
+                }
+                return super.validateRequest(req, res, mandatory);
+            }
+        };
         security.setAuthenticator(formAuthenticator);
 
         Constraint constraint = new Constraint();

@@ -241,12 +241,7 @@ main { max-width: 1200px; margin: 0 auto; padding: 16px; display: flex; flex-dir
               display: flex; align-items: center; gap: 6px; }
 .alarm-item::before { content: '⚠'; font-size: 12px; }
 
-/* Update flash */
-@keyframes dataflash {
-  0%   { background: #dbeafe; }
-  100% { background: transparent; }
-}
-.flash { animation: dataflash .5s ease; }
+/* Subtle value-change highlight on the SOC fill only — no card-level flash */
 
 /* Timestamp */
 .last-update { font-size: 11px; color: var(--muted); text-align: right; padding: 0 2px; }
@@ -500,8 +495,6 @@ function renderPackGrid() {
         var btn  = existing.querySelector('.expand-btn');
         if (wrap) { wrap.classList.add('open'); btn && btn.classList.add('open'); }
       }
-      existing.classList.add('flash');
-      setTimeout(() => existing && existing.classList.remove('flash'), 600);
     }
   });
 
