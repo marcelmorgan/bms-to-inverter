@@ -46,6 +46,11 @@ import org.slf4j.LoggerFactory;
 import com.airepublic.bmstoinverter.core.bms.data.BatteryPack;
 import com.airepublic.bmstoinverter.core.bms.data.EnergyStorage;
 import com.airepublic.bmstoinverter.core.service.IWebServerService;
+import com.ghgande.j2mod.modbus.Modbus;
+import com.ghgande.j2mod.modbus.facade.ModbusSerialMaster;
+import com.ghgande.j2mod.modbus.io.ModbusSerialTransaction;
+import com.ghgande.j2mod.modbus.msg.ReadMultipleRegistersRequest;
+import com.ghgande.j2mod.modbus.util.SerialParameters;
 import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -185,6 +190,35 @@ public class WebServer implements IWebServerService {
                     return;
                 }
 
+                if (path.equals("/api/scan/modbus") && "GET".equals(request.getMethod())) {
+                    final String portParam = request.getParameter("port");
+                    int baudRate = 9600;
+                    int startId = 1;
+                    int endId = 247;
+                    try {
+                        baudRate = Integer.parseInt(request.getParameter("baudRate"));
+                    } catch (final Exception ignored) {
+                    }
+                    try {
+                        startId = Integer.parseInt(request.getParameter("startId"));
+                    } catch (final Exception ignored) {
+                    }
+                    try {
+                        endId = Integer.parseInt(request.getParameter("endId"));
+                    } catch (final Exception ignored) {
+                    }
+                    response.setContentType("application/json; charset=utf-8");
+                    response.setHeader("Access-Control-Allow-Origin", "*");
+                    if (portParam == null || portParam.isEmpty()) {
+                        response.setStatus(400);
+                        response.getWriter().write("{\"error\":\"port parameter required\"}");
+                    } else {
+                        response.getWriter().write(scanModbus(portParam, baudRate, startId, endId));
+                    }
+                    baseRequest.setHandled(true);
+                    return;
+                }
+
                 if (path.equals("/api/config") && "GET".equals(request.getMethod())) {
                     response.setContentType("application/json; charset=utf-8");
                     response.setHeader("Access-Control-Allow-Origin", "*");
@@ -288,6 +322,71 @@ public class WebServer implements IWebServerService {
     @Override
     public void setStatusSupplier(final Supplier<String> statusSupplier) {
         this.statusSupplier = statusSupplier;
+    }
+
+
+    private String scanModbus(final String portName, final int baudRate, final int startId, final int endId) {
+        final List<Integer> found = new ArrayList<>();
+        String error = null;
+        ModbusSerialMaster master = null;
+
+        try {
+            final SerialParameters params = new SerialParameters();
+            params.setPortName(portName);
+            params.setBaudRate(baudRate);
+            params.setDatabits(8);
+            params.setParity("None");
+            params.setStopbits(1);
+            params.setEncoding(Modbus.SERIAL_ENCODING_RTU);
+            params.setEcho(false);
+
+            master = new ModbusSerialMaster(params, 300);
+            master.connect();
+            master.setRetries(0);
+
+            for (int unitId = startId; unitId <= endId; unitId++) {
+                try {
+                    final ReadMultipleRegistersRequest request = new ReadMultipleRegistersRequest(0, 1);
+                    request.setUnitID(unitId);
+                    request.setHeadless();
+
+                    final ModbusSerialTransaction transaction = new ModbusSerialTransaction(request);
+                    transaction.setSerialConnection(master.getConnection());
+                    transaction.setRetries(0);
+                    transaction.setTransDelayMS(0);
+                    transaction.execute();
+
+                    if (transaction.getResponse() != null) {
+                        found.add(unitId);
+                    }
+                } catch (final Exception ignored) {
+                }
+            }
+        } catch (final Exception e) {
+            error = e.getMessage();
+            LOG.warn("Modbus scan error on {}: {}", portName, e.getMessage());
+        } finally {
+            if (master != null) {
+                try {
+                    master.disconnect();
+                } catch (final Exception ignored) {
+                }
+            }
+        }
+
+        final StringBuilder sb = new StringBuilder("{\"found\":[");
+        for (int i = 0; i < found.size(); i++) {
+            if (i > 0) sb.append(",");
+            sb.append(found.get(i));
+        }
+        sb.append("],\"scanned\":").append(endId - startId + 1);
+        if (error != null) {
+            sb.append(",\"error\":\"").append(error.replace("\\", "\\\\").replace("\"", "\\\"")).append("\"");
+        } else {
+            sb.append(",\"error\":null");
+        }
+        sb.append("}");
+        return sb.toString();
     }
 
 

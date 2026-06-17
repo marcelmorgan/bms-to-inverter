@@ -29,6 +29,12 @@
 		</dependency>
 
 		<dependency>
+			<groupId>com.ai-republic.bms-to-inverter</groupId>
+			<artifactId>protocol-modbus</artifactId>
+			<version>0.0.1-SNAPSHOT</version>
+		</dependency>
+
+		<dependency>
 			<groupId>org.eclipse.jetty</groupId>
 			<artifactId>jetty-server</artifactId>
 			<version>9.4.57.v20241219</version>
