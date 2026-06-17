@@ -359,57 +359,56 @@ public class WebServer implements IWebServerService {
                 PortAllocator.free(allocKey);
             }
         } else {
-            // Service is stopped — open the port directly via j2mod
-            LOG.info("Modbus scan opening port directly (service not running): {}", portName);
-            ModbusSerialMaster master = null;
+            // Port not managed by PortAllocator — open it directly using jSerialComm.
+            // We avoid j2mod's SerialConnection here because it tries to configure kernel
+            // RS485 mode which fails on FTDI USB adapters; plain jSerialComm works fine.
+            LOG.info("Modbus scan opening port directly via jSerialComm: {}", portName);
+            com.fazecast.jSerialComm.SerialPort comPort = null;
             try {
-                String resolvedPort = portName;
+                String devPath = portName;
                 try {
                     final Path p = Paths.get(portName);
-                    resolvedPort = (Files.isSymbolicLink(p) ? p.toRealPath() : p).getFileName().toString();
+                    devPath = (Files.isSymbolicLink(p) ? p.toRealPath() : p).toString();
                 } catch (final Exception ignored) {
                 }
 
-                final SerialParameters params = new SerialParameters();
-                params.setPortName(resolvedPort);
-                params.setBaudRate(baudRate);
-                params.setDatabits(8);
-                params.setParity("None");
-                params.setStopbits(1);
-                params.setEncoding(Modbus.SERIAL_ENCODING_RTU);
-                params.setEcho(false);
+                comPort = com.fazecast.jSerialComm.SerialPort.getCommPort(devPath);
+                comPort.setBaudRate(baudRate);
+                comPort.setNumDataBits(8);
+                comPort.setNumStopBits(com.fazecast.jSerialComm.SerialPort.ONE_STOP_BIT);
+                comPort.setParity(com.fazecast.jSerialComm.SerialPort.NO_PARITY);
+                comPort.setComPortTimeouts(
+                    com.fazecast.jSerialComm.SerialPort.TIMEOUT_READ_BLOCKING, 300, 0);
 
-                master = new ModbusSerialMaster(params, 300);
-                master.connect();
-                master.setRetries(0);
+                if (!comPort.openPort()) {
+                    error = "Could not open port " + devPath;
+                } else {
+                    for (int unitId = startId; unitId <= endId; unitId++) {
+                        try {
+                            // Drain any stale bytes before sending
+                            final int avail = comPort.bytesAvailable();
+                            if (avail > 0) {
+                                comPort.readBytes(new byte[avail], avail);
+                            }
 
-                for (int unitId = startId; unitId <= endId; unitId++) {
-                    try {
-                        final ReadMultipleRegistersRequest request = new ReadMultipleRegistersRequest(0, 1);
-                        request.setUnitID(unitId);
-                        request.setHeadless();
+                            comPort.writeBytes(modbusRtuRequest(unitId), 8);
 
-                        final ModbusSerialTransaction transaction = new ModbusSerialTransaction(request);
-                        transaction.setSerialConnection(master.getConnection());
-                        transaction.setRetries(0);
-                        transaction.setTransDelayMS(0);
-                        transaction.execute();
-
-                        if (transaction.getResponse() != null) {
-                            found.add(unitId);
+                            // Wait up to 300 ms for the first byte; if it echoes back
+                            // the unit ID the device is present
+                            final byte[] resp = new byte[1];
+                            if (comPort.readBytes(resp, 1) > 0 && (resp[0] & 0xFF) == unitId) {
+                                found.add(unitId);
+                            }
+                        } catch (final Exception ignored) {
                         }
-                    } catch (final Exception ignored) {
                     }
                 }
             } catch (final Exception e) {
                 error = e.getMessage();
-                LOG.warn("Modbus scan error (direct path) on {}: {}", portName, e.getMessage());
+                LOG.warn("Modbus scan error on {}: {}", portName, e.getMessage());
             } finally {
-                if (master != null) {
-                    try {
-                        master.disconnect();
-                    } catch (final Exception ignored) {
-                    }
+                if (comPort != null && comPort.isOpen()) {
+                    comPort.closePort();
                 }
             }
         }
@@ -447,6 +446,28 @@ public class WebServer implements IWebServerService {
         }
 
         return null;
+    }
+
+
+    private byte[] modbusRtuRequest(final int unitId) {
+        // FC 03 — read 1 holding register at address 0x0000
+        final byte[] frame = new byte[8];
+        frame[0] = (byte) unitId;
+        frame[1] = 0x03;
+        frame[2] = 0x00;
+        frame[3] = 0x00;
+        frame[4] = 0x00;
+        frame[5] = 0x01;
+        int crc = 0xFFFF;
+        for (int i = 0; i < 6; i++) {
+            crc ^= frame[i] & 0xFF;
+            for (int b = 0; b < 8; b++) {
+                crc = (crc & 1) != 0 ? (crc >>> 1) ^ 0xA001 : crc >>> 1;
+            }
+        }
+        frame[6] = (byte) (crc & 0xFF);
+        frame[7] = (byte) (crc >> 8);
+        return frame;
     }
 
 
