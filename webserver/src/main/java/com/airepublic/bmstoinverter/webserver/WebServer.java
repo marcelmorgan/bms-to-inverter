@@ -119,10 +119,9 @@ public class WebServer implements IWebServerService {
         sessionHandler.setSessionCookie("JSESSIONID");
         sessionHandler.setSessionIdPathParameterName("none");
         sessionHandler.setHttpOnly(true);
-        sessionHandler.setSecureRequestOnly(true);
+        sessionHandler.setSecureRequestOnly(false);
 
         final HandlerList handlers = new HandlerList();
-        handlers.addHandler(new org.eclipse.jetty.server.handler.SecuredRedirectHandler());
 
         final ResourceHandler resourceHandler = new ResourceHandler();
         resourceHandler.setBaseResource(Resource.newClassPathResource("/static/"));
