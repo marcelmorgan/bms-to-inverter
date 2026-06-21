@@ -128,6 +128,7 @@ public class WebServer implements IWebServerService {
         resourceHandler.setBaseResource(Resource.newClassPathResource("/static/"));
         resourceHandler.setDirectoriesListed(false);
         resourceHandler.setWelcomeFiles(new String[] { "index.html" });
+        resourceHandler.setCacheControl("no-store");
 
         final AbstractHandler apiHandler = new AbstractHandler() {
             @Override

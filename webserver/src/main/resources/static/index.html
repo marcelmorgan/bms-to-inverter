@@ -437,6 +437,14 @@ function init() {
   document.getElementById('themeBtn').textContent =
     document.documentElement.getAttribute('data-theme') === 'dark' ? '☀' : '🌙';
 
+  // Restore last known header state immediately so refresh never shows "Connecting…"
+  var cachedText = localStorage.getItem('bms-hdr-text');
+  var cachedDot  = localStorage.getItem('bms-hdr-dot');
+  if (cachedText) {
+    document.getElementById('hdrConnText').textContent = cachedText;
+    document.getElementById('hdrDot').className = cachedDot || 'conn-dot ok';
+  }
+
   // Always start polling regardless of whether the initial data fetch succeeds
   connectSSE();
   refreshStatus();
@@ -496,9 +504,12 @@ function updateConnHeader() {
   var conn  = statusData.bms ? statusData.bms.filter(b => b.connected).length : 0;
   var invOk = statusData.inverter && statusData.inverter.connected;
   var all   = (conn === total) && invOk;
-  document.getElementById('hdrDot').className = 'conn-dot ' + (all ? 'ok' : 'err');
-  document.getElementById('hdrConnText').textContent =
-    conn + '/' + total + ' BMS · Inv ' + (invOk ? '✓' : '✗');
+  var dotCls = 'conn-dot ' + (all ? 'ok' : 'err');
+  var txt    = conn + '/' + total + ' BMS · Inv ' + (invOk ? '✓' : '✗');
+  document.getElementById('hdrDot').className = dotCls;
+  document.getElementById('hdrConnText').textContent = txt;
+  localStorage.setItem('bms-hdr-text', txt);
+  localStorage.setItem('bms-hdr-dot',  dotCls);
 }
 
 /* ── Health / stale-data check ──────────────────────── */
