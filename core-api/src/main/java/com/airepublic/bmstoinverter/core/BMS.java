@@ -33,6 +33,7 @@ public abstract class BMS {
     private final Map<Integer, BatteryPack> batteryPacks = new LinkedHashMap<>();
     private BMSConfig config;
     private Set<BmsPlugin> plugins;
+    private volatile String lastError = null;
     @Inject
     @EnergyStorageQualifier
     private transient EnergyStorage energyStorage;
@@ -187,6 +188,7 @@ public abstract class BMS {
                 }
             } catch (final NoDataAvailableException e) {
                 LOG.error("Received no bytes too many times - trying to close and re-open port!");
+                lastError = "No data received — reopening port";
                 // try to close and re-open the port
                 port.close();
                 port.open();
@@ -194,14 +196,17 @@ public abstract class BMS {
             // autoCalibrateSOC();
         } catch (final TooManyInvalidFramesException e) {
             LOG.error("Received too many invalid frames - start new reading round!");
+            lastError = "Too many invalid frames from BMS";
             return;
         } catch (final Throwable e) {
             LOG.error("Error requesting data!", e);
+            lastError = e.getClass().getSimpleName() + ": " + e.getMessage();
             return;
         } finally {
             PortAllocator.free(getPortLocator());
         }
 
+        lastError = null;
         try {
             callback.run();
         } catch (final Throwable e) {
@@ -222,8 +227,18 @@ public abstract class BMS {
 
 
     /**
+     * Gets the last error message from the most recent failed poll, or null if the last poll succeeded.
+     *
+     * @return the last error message, or null
+     */
+    public String getLastError() {
+        return lastError;
+    }
+
+
+    /**
      * Gets the {@link EnergyStorage} data.
-     * 
+     *
      * @return the {@link EnergyStorage}
      */
     public EnergyStorage getEnergyStorage() {

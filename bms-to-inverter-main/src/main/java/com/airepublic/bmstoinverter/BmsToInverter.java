@@ -296,6 +296,7 @@ public class BmsToInverter implements AutoCloseable {
                             bms.process(() -> receivedData());
                             bmsLastSuccess.put(bms.getBmsId(), Instant.now());
                         } catch (final Throwable e) {
+                            LOG.error("Unexpected error running BMS #{}", bms.getBmsId(), e);
                         }
                     }
 
@@ -411,10 +412,13 @@ public class BmsToInverter implements AutoCloseable {
             first = false;
             final Instant last = bmsLastSuccess.get(bms.getBmsId());
             final boolean connected = last != null && last.isAfter(Instant.now().minusSeconds(30));
+            final String err = bms.getLastError();
             sb.append("{\"id\":").append(bms.getBmsId())
                     .append(",\"portLocator\":\"").append(bms.getPortLocator()).append("\"")
                     .append(",\"lastReadOk\":\"").append(last != null ? last.toString() : "never").append("\"")
-                    .append(",\"connected\":").append(connected).append("}");
+                    .append(",\"connected\":").append(connected)
+                    .append(",\"lastError\":").append(err != null ? "\"" + escJson(err) + "\"" : "null")
+                    .append("}");
         }
         sb.append("],\"inverter\":{");
         if (inverter != null) {
@@ -522,6 +526,11 @@ public class BmsToInverter implements AutoCloseable {
         } catch (final Throwable e) {
             LOG.info("Shutting down ports...FAILED");
         }
+    }
+
+
+    private static String escJson(final String s) {
+        return s == null ? "" : s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r");
     }
 
 
