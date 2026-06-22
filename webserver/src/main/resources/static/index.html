@@ -165,7 +165,7 @@ main { max-width: 1200px; margin: 0 auto; padding: 16px; display: flex; flex-dir
 
 /* Key stats row */
 .card-stats {
-  display: grid; grid-template-columns: repeat(3, 1fr);
+  display: grid; grid-template-columns: repeat(4, 1fr);
   padding: 10px 16px; gap: 6px;
   border-top: 1px solid var(--border);
 }
@@ -242,6 +242,13 @@ main { max-width: 1200px; margin: 0 auto; padding: 16px; display: flex; flex-dir
 
 /* Subtle value-change highlight on the SOC fill only — no card-level flash */
 
+/* Card error line */
+.card-error {
+  font-size: 10px; color: var(--red); font-weight: 500;
+  margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+[data-theme="dark"] .card-error { color: var(--red-s); }
+
 /* Timestamp */
 .last-update { font-size: 11px; color: var(--muted); text-align: right; padding: 0 2px; }
 
@@ -279,6 +286,25 @@ main { max-width: 1200px; margin: 0 auto; padding: 16px; display: flex; flex-dir
 }
 .hdr-theme:hover { opacity: 1; }
 
+/* ── Pull-to-refresh indicator ───────────────────────── */
+.ptr-pill {
+  position: fixed; top: 62px; left: 50%; transform: translateX(-50%) translateY(-20px);
+  display: flex; align-items: center; gap: 8px;
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 99px; padding: 7px 16px;
+  font-size: 12px; font-weight: 600; color: var(--muted);
+  box-shadow: 0 3px 12px rgba(0,0,0,.15); z-index: 99;
+  opacity: 0; pointer-events: none;
+  transition: opacity .15s, transform .15s;
+}
+.ptr-pill.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+.ptr-ring {
+  width: 14px; height: 14px; border-radius: 50%;
+  border: 2px solid var(--border); border-top-color: var(--blue); flex-shrink: 0;
+}
+.ptr-ring.spin { animation: spin .7s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
 /* ── Responsive tweaks ───────────────────────────────── */
 @media (max-width: 480px) {
   main { padding: 10px; gap: 10px; }
@@ -301,12 +327,18 @@ main { max-width: 1200px; margin: 0 auto; padding: 16px; display: flex; flex-dir
   <a class="hdr-link" href="/config.html" title="Configure">&#9881;</a>
 </header>
 
+<div class="ptr-pill" id="ptrPill">
+  <div class="ptr-ring" id="ptrRing"></div>
+  <span id="ptrText">Pull to refresh</span>
+</div>
+
 <main>
   <div class="section-lbl">System Overview</div>
   <div class="overview" id="overview">
     <div class="overview-stats" id="overviewStats">
       <div class="ov-stat"><div class="ov-val" id="ovSoc">—</div><div class="ov-lbl">Avg SOC</div></div>
       <div class="ov-stat"><div class="ov-val" id="ovCurrent">—</div><div class="ov-lbl">Total Current</div></div>
+      <div class="ov-stat"><div class="ov-val" id="ovPower">—</div><div class="ov-lbl">Net Power</div></div>
       <div class="ov-stat"><div class="ov-val" id="ovVoltage">—</div><div class="ov-lbl">Avg Voltage</div></div>
       <div class="ov-stat"><div id="ovState" class="ov-val" style="font-size:14px;padding-top:4px">—</div><div class="ov-lbl">State</div></div>
     </div>
@@ -347,6 +379,8 @@ var alarmMsgs  = {};
 var evtSource  = null;
 var lastUpdate = null;
 var updateTimer = null;
+var lastKnownUptime   = null;
+var lastUptimeCheckAt = null;
 
 var dataURL   = location.protocol + '//' + location.host + '/data';
 var sseURL    = location.protocol + '//' + location.host + '/api/data/stream';
@@ -354,20 +388,74 @@ var statusURL = location.protocol + '//' + location.host + '/api/status';
 var healthURL = location.protocol + '//' + location.host + '/api/health';
 var alarmsURL = location.protocol + '//' + location.host + '/alarmMessages';
 
+/* ── Pull-to-refresh ────────────────────────────────── */
+var ptrStartY   = 0;
+var ptrTracking = false;
+var PTR_THRESHOLD = 72;
+
+document.addEventListener('touchstart', function(e) {
+  if (window.scrollY === 0) { ptrStartY = e.touches[0].clientY; ptrTracking = true; }
+}, { passive: true });
+
+document.addEventListener('touchmove', function(e) {
+  if (!ptrTracking) return;
+  var dy = e.touches[0].clientY - ptrStartY;
+  if (dy > 16) {
+    var pill = document.getElementById('ptrPill');
+    pill.classList.add('show');
+    document.getElementById('ptrText').textContent = dy > PTR_THRESHOLD ? 'Release to refresh' : 'Pull to refresh';
+  }
+}, { passive: true });
+
+document.addEventListener('touchend', function(e) {
+  if (!ptrTracking) return;
+  ptrTracking = false;
+  var dy = e.changedTouches[0].clientY - ptrStartY;
+  var pill = document.getElementById('ptrPill');
+  if (dy > PTR_THRESHOLD) {
+    document.getElementById('ptrText').textContent = 'Refreshing…';
+    document.getElementById('ptrRing').classList.add('spin');
+    doRefresh();
+    setTimeout(function() {
+      pill.classList.remove('show');
+      document.getElementById('ptrRing').classList.remove('spin');
+    }, 1200);
+  } else {
+    pill.classList.remove('show');
+  }
+}, { passive: true });
+
+function doRefresh() {
+  fetch(dataURL).then(r => r.json()).then(d => { bmsData = d; renderAll(); }).catch(() => {});
+  connectSSE();
+  refreshStatus();
+  refreshHealth();
+}
+
 /* ── Bootstrap ─────────────────────────────────────── */
 function init() {
   document.getElementById('themeBtn').textContent =
     document.documentElement.getAttribute('data-theme') === 'dark' ? '☀' : '🌙';
 
+  // Restore last known header state immediately so refresh never shows "Connecting…"
+  var cachedText = localStorage.getItem('bms-hdr-text');
+  var cachedDot  = localStorage.getItem('bms-hdr-dot');
+  if (cachedText) {
+    document.getElementById('hdrConnText').textContent = cachedText;
+    document.getElementById('hdrDot').className = cachedDot || 'conn-dot ok';
+  }
+
+  // Always start polling regardless of whether the initial data fetch succeeds
+  connectSSE();
+  refreshStatus();
+  setInterval(refreshStatus, 10000);
+  setInterval(updateRelTime, 5000);
+  setInterval(refreshHealth, 30000);
+
   fetch(dataURL).then(r => r.json()).then(d => {
     bmsData = d;
     renderAll();
-    connectSSE();
-    refreshStatus();
-    setInterval(refreshStatus, 10000);
-    setInterval(updateRelTime, 5000);
-    setInterval(refreshHealth, 30000);
-  }).catch(e => console.error('init failed', e));
+  }).catch(() => {});
 
   fetch(alarmsURL).then(r => r.json()).then(d => { alarmMsgs = d; }).catch(() => {});
 }
@@ -386,6 +474,7 @@ function connectSSE() {
   };
   evtSource.onerror = () => {
     setHdrConn(false);
+    if (!statusData) document.getElementById('hdrConnText').textContent = 'Offline';
     evtSource.close();
     setTimeout(connectSSE, 5000);
   };
@@ -401,7 +490,12 @@ function refreshStatus() {
     statusData = d;
     updateConnHeader();
     renderPackGrid(); // re-render dots
-  }).catch(() => {});
+  }).catch(() => {
+    if (!statusData) {
+      document.getElementById('hdrDot').className = 'conn-dot err';
+      document.getElementById('hdrConnText').textContent = 'Offline';
+    }
+  });
 }
 
 function updateConnHeader() {
@@ -410,9 +504,12 @@ function updateConnHeader() {
   var conn  = statusData.bms ? statusData.bms.filter(b => b.connected).length : 0;
   var invOk = statusData.inverter && statusData.inverter.connected;
   var all   = (conn === total) && invOk;
-  document.getElementById('hdrDot').className = 'conn-dot ' + (all ? 'ok' : 'err');
-  document.getElementById('hdrConnText').textContent =
-    conn + '/' + total + ' BMS · Inv ' + (invOk ? '✓' : '✗');
+  var dotCls = 'conn-dot ' + (all ? 'ok' : 'err');
+  var txt    = conn + '/' + total + ' BMS · Inv ' + (invOk ? '✓' : '✗');
+  document.getElementById('hdrDot').className = dotCls;
+  document.getElementById('hdrConnText').textContent = txt;
+  localStorage.setItem('bms-hdr-text', txt);
+  localStorage.setItem('bms-hdr-dot',  dotCls);
 }
 
 /* ── Health / stale-data check ──────────────────────── */
@@ -424,8 +521,16 @@ function refreshHealth() {
       document.getElementById('hdrConnText').textContent =
         'No data for ' + h.lastDataSeconds + 's — service may be stalled';
     }
-    // Show uptime in the footer when things are healthy
     var up = h.uptimeSeconds;
+
+    // Detect service restart (deploy): uptime went backwards → reload page
+    if (lastKnownUptime !== null && up < lastKnownUptime) {
+      location.reload();
+      return;
+    }
+    lastKnownUptime   = up;
+    lastUptimeCheckAt = Date.now();
+
     var uptimeTxt = up < 60 ? up + 's' : up < 3600 ? Math.floor(up/60) + 'm' : Math.floor(up/3600) + 'h ' + Math.floor((up%3600)/60) + 'm';
     var el = document.getElementById('serviceUptime');
     if (el) el.textContent = 'Service uptime: ' + uptimeTxt;
@@ -462,6 +567,7 @@ function renderOverview() {
   // so average rather than sum across all packs.
   var totalA = packs.reduce((s, p) => s + p.packCurrent, 0) / n / 10;
   var avgV   = packs.reduce((s, p) => s + p.packVoltage, 0) / n / 10;
+  var totalKW = avgV * totalA / 1000;
 
   var state = 'idle';
   packs.forEach(p => {
@@ -478,6 +584,11 @@ function renderOverview() {
   var sign = totalA > 0.5 ? '+' : '';
   cEl.textContent = sign + totalA.toFixed(1) + ' A';
   cEl.className = 'ov-val ' + (totalA > 0.5 ? 'green' : totalA < -0.5 ? 'red-s' : '');
+
+  var pwEl = document.getElementById('ovPower');
+  var pwSign = totalKW > 0.05 ? '+' : '';
+  pwEl.textContent = pwSign + totalKW.toFixed(2) + ' kW';
+  pwEl.className = 'ov-val ' + (totalKW > 0.05 ? 'green' : totalKW < -0.05 ? 'red-s' : '');
 
   document.getElementById('ovVoltage').textContent = avgV.toFixed(1) + ' V';
 
@@ -535,6 +646,7 @@ function buildPackCard(pack, idx) {
   var voltage = pack.packVoltage / 10;
   var n       = bmsData.batteryPacks.length || 1;
   var current = pack.packCurrent / n / 10; // each module reports total bus current; divide by pack count for individual share
+  var packKW  = voltage * current / 1000;
   var minV    = pack.minCellmV / 1000;
   var maxV    = pack.maxCellmV / 1000;
   var diff    = (pack.maxCellmV - pack.minCellmV) / 1000;
@@ -543,12 +655,15 @@ function buildPackCard(pack, idx) {
   var st = statusData && statusData.bms && statusData.bms[idx];
   var dotCls = st ? (st.connected ? 'ok' : 'err') : 'idle';
   var sub = st ? shortPath(st.portLocator) : '';
+  var errTxt = (st && !st.connected && st.lastError) ? st.lastError : '';
 
   var stateMap = {0:'Idle',1:'Charging',2:'Discharging',3:'Sleep'};
   var stateTxt = stateMap[pack.chargeDischargeStatus] || 'Idle';
 
   var currSign  = current > 0.5 ? '+' : '';
   var currClass = current > 0.5 ? 'pos' : current < -0.5 ? 'neg' : '';
+  var kwSign    = packKW > 0.005 ? '+' : '';
+  var kwClass   = packKW > 0.005 ? 'pos' : packKW < -0.005 ? 'neg' : '';
 
   var diffClass = diff < 0.020 ? 'diff-ok' : diff < 0.050 ? 'diff-warn' : 'diff-bad';
 
@@ -576,6 +691,7 @@ function buildPackCard(pack, idx) {
     '<div class="card-title-wrap">' +
       '<div class="card-title">BMS #' + (idx+1) + '</div>' +
       (sub ? '<div class="card-sub">' + sub + '</div>' : '') +
+      (errTxt ? '<div class="card-error">' + errTxt + '</div>' : '') +
     '</div>' +
     '<span class="status-dot ' + dotCls + '"></span>' +
   '</div>' +
@@ -591,6 +707,7 @@ function buildPackCard(pack, idx) {
   '<div class="card-stats">' +
     '<div class="cs"><div class="cs-v">' + voltage.toFixed(1) + ' V</div><div class="cs-l">Voltage</div></div>' +
     '<div class="cs"><div class="cs-v ' + currClass + '">' + currSign + current.toFixed(1) + ' A</div><div class="cs-l">Current</div></div>' +
+    '<div class="cs"><div class="cs-v ' + kwClass + '">' + kwSign + packKW.toFixed(2) + ' kW</div><div class="cs-l">Power</div></div>' +
     '<div class="cs"><div class="cs-v">' + (pack.packSOH !== undefined ? (pack.packSOH/10).toFixed(0)+'%' : '—') + '</div><div class="cs-l">SOH</div></div>' +
   '</div>' +
 
