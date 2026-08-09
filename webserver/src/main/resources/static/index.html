@@ -654,8 +654,7 @@ function buildPackCard(pack, idx) {
 
   var st = statusData && statusData.bms && statusData.bms[idx];
   var dotCls = st ? (st.connected ? 'ok' : 'err') : 'idle';
-  var serial = pack.serialnumber ? ' · S/N: ' + pack.serialnumber : '';
-  var sub = (st ? shortPath(st.portLocator) : '') + serial;
+  var sub = st ? shortPath(st.portLocator) : '';
   var errTxt = (st && !st.connected && st.lastError) ? st.lastError : '';
 
   var stateMap = {0:'Idle',1:'Charging',2:'Discharging',3:'Sleep'};
@@ -690,7 +689,7 @@ function buildPackCard(pack, idx) {
   return '' +
   '<div class="card-hdr">' +
     '<div class="card-title-wrap">' +
-      '<div class="card-title">BMS #' + (idx+1) + '</div>' +
+      '<div class="card-title">BMS #' + (idx+1) + (pack.serialnumber ? ' <span style="font-weight:400;color:var(--muted);font-size:12px;">· ' + pack.serialnumber + '</span>' : '') + '</div>' +
       (sub ? '<div class="card-sub">' + sub + '</div>' : '') +
       (errTxt ? '<div class="card-error">' + errTxt + '</div>' : '') +
     '</div>' +
