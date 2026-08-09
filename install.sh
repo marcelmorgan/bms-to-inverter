@@ -30,8 +30,17 @@ echo "Installing as service user: $SERVICE_USER"
 
 # ── 2. Check Java ─────────────────────────────────────────────────────────────
 if ! java -version &>/dev/null; then
-    echo "Java not found — installing openjdk-17-jre-headless..."
-    apt-get install -y openjdk-17-jre-headless
+    if apt-cache show openjdk-17-jre-headless &>/dev/null 2>&1; then
+        echo "Java not found — installing openjdk-17-jre-headless..."
+        apt-get install -y openjdk-17-jre-headless
+    elif apt-cache show openjdk-21-jre-headless &>/dev/null 2>&1; then
+        echo "Java not found — installing openjdk-21-jre-headless..."
+        apt-get install -y openjdk-21-jre-headless
+    else
+        echo "ERROR: No supported Java package found (tried openjdk-17-jre-headless, openjdk-21-jre-headless)" >&2
+        echo "Install Java manually: sudo apt-get install openjdk-21-jre-headless" >&2
+        exit 1
+    fi
 fi
 
 # ── 3. Build ──────────────────────────────────────────────────────────────────
