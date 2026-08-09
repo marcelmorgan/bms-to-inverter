@@ -654,7 +654,8 @@ function buildPackCard(pack, idx) {
 
   var st = statusData && statusData.bms && statusData.bms[idx];
   var dotCls = st ? (st.connected ? 'ok' : 'err') : 'idle';
-  var sub = st ? shortPath(st.portLocator) : '';
+  var serial = pack.serialnumber ? ' · S/N: ' + pack.serialnumber : '';
+  var sub = (st ? shortPath(st.portLocator) : '') + serial;
   var errTxt = (st && !st.connected && st.lastError) ? st.lastError : '';
 
   var stateMap = {0:'Idle',1:'Charging',2:'Discharging',3:'Sleep'};
