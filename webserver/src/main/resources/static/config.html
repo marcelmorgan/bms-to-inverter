@@ -238,7 +238,7 @@ main { max-width: 760px; margin: 0 auto; padding: 20px 16px; display: flex; flex
 
   <div class="info-banner">
     <span class="info-banner-icon">ℹ</span>
-    Saving will write the config file and restart the service. The dashboard will reconnect automatically within a few seconds.
+    Saving will write the config file and restart the service. The dashboard will reconnect automatically once the service is back up.
   </div>
 
   <!-- BMS section (scanner integrated at top) -->
@@ -350,8 +350,8 @@ main { max-width: 760px; margin: 0 auto; padding: 20px 16px; display: flex; flex
   <div class="restart-box">
     <div class="restart-icon">🔄</div>
     <div class="restart-title">Restarting service</div>
-    <div class="restart-sub">The dashboard will reconnect automatically</div>
-    <div class="restart-count" id="restartCount">5</div>
+    <div class="restart-sub" id="restartSub">Waiting for service to come back…</div>
+    <div class="restart-count" id="restartCount">⏳</div>
   </div>
 </div>
 
@@ -530,26 +530,39 @@ function save() {
     body: JSON.stringify(cfg)
   })
   .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-  .then(() => startRestart(6))
+  .then(() => startRestart())
   .catch(err => {
     alert('Save failed: ' + err);
     document.getElementById('saveBtn').disabled = false;
   });
 }
 
-function startRestart(secs) {
+function startRestart() {
   document.getElementById('restartOverlay').classList.add('show');
-  var el = document.getElementById('restartCount');
-  var tick = function() {
-    el.textContent = secs;
-    if (secs <= 0) {
-      window.location.href = '/';
-      return;
-    }
-    secs--;
-    setTimeout(tick, 1000);
-  };
-  tick();
+  var countEl = document.getElementById('restartCount');
+  var subEl   = document.getElementById('restartSub');
+  var elapsed = 0;
+  var dots = ['⏳', '🔄', '⌛', '🔄'];
+
+  // Wait 3s for the service to begin shutting down, then start polling
+  var spinInterval = setInterval(function() {
+    elapsed++;
+    countEl.textContent = dots[elapsed % dots.length];
+    subEl.textContent = 'Waiting for service… ' + elapsed + 's';
+  }, 1000);
+
+  setTimeout(function() {
+    var poll = setInterval(function() {
+      fetch('/api/health', { cache: 'no-store' })
+        .then(function(r) { if (r.ok) return r.json(); throw new Error(); })
+        .then(function() {
+          clearInterval(poll);
+          clearInterval(spinInterval);
+          window.location.href = '/';
+        })
+        .catch(function() {});
+    }, 1000);
+  }, 3000);
 }
 
 function v(id) {
