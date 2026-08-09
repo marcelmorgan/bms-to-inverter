@@ -42,6 +42,10 @@ import com.airepublic.bmstoinverter.protocol.modbus.ModbusUtil.RegisterCode;
  *  19-29/18-28: cell temperatures  (°C × 10 → 0.1°C; -999 = unavailable)
  *  30-34/29-33: unavailable sensor markers (-999)
  *  35-49/34-48: cell voltages (mV direct; 0xFFFF = no cell; 15 cells)
+ *  50-67/49-66: zeros / unused
+ *  68/67       : serial number high word
+ *  69/68       : zero
+ *  70/69       : serial number low word
  */
 public class HuaweiEsm48150BmsModbusProcessor extends BMS {
     private final static Logger LOG = LoggerFactory.getLogger(HuaweiEsm48150BmsModbusProcessor.class);
@@ -49,7 +53,7 @@ public class HuaweiEsm48150BmsModbusProcessor extends BMS {
     @Override
     protected void collectData(final Port port) throws IOException {
         try {
-            sendMessage(port, RegisterCode.READ_HOLDING_REGISTERS, 0, 49, getBmsId(), this::readAllData);
+            sendMessage(port, RegisterCode.READ_HOLDING_REGISTERS, 0, 70, getBmsId(), this::readAllData);
         } catch (final IOException e) {
             LOG.error("Error reading from ESM-48150B1 modbus!", e);
             throw e;
@@ -133,6 +137,17 @@ public class HuaweiEsm48150BmsModbusProcessor extends BMS {
         if (pack.numberOfCells > 0) {
             pack.cellDiffmV = pack.maxCellmV - pack.minCellmV;
         }
+
+        // PDU 49-66: unused zeros
+        for (int i = 0; i < 18; i++) {
+            frame.getInt();
+        }
+
+        // PDU 67+69: serial number (PDU 68 is always zero, skip it)
+        final int serialHi = frame.getInt() & 0xFFFF;
+        frame.getInt(); // PDU 68: zero
+        final int serialLo = frame.getInt() & 0xFFFF;
+        pack.serialnumber = String.format("%04X-%04X", serialHi, serialLo);
     }
 
 }
