@@ -26,7 +26,7 @@ import com.airepublic.bmstoinverter.protocol.modbus.ModbusUtil.RegisterCode;
 /**
  * The class to handle Modbus messages from a Huawei ESM-48150B1 {@link BMS}.
  *
- * All data is fetched in a single FC03 request covering PDU addresses 0-44 (mbpoll regs 1-45)
+ * All data is fetched in a single FC03 request covering PDU addresses 0-48 (mbpoll regs 1-49)
  * to avoid bus contention with other devices sharing the RS485 line.
  *
  * Confirmed register map (mbpoll 1-based / PDU 0-based):
@@ -41,7 +41,7 @@ import com.airepublic.bmstoinverter.protocol.modbus.ModbusUtil.RegisterCode;
  *   8-18/7-17 : zeros / status (unused)
  *  19-29/18-28: cell temperatures  (°C × 10 → 0.1°C; -999 = unavailable)
  *  30-34/29-33: unavailable sensor markers (-999)
- *  35-45/34-44: cell voltages (mV direct; 0xFFFF = no cell)
+ *  35-49/34-48: cell voltages (mV direct; 0xFFFF = no cell; 15 cells)
  */
 public class HuaweiEsm48150BmsModbusProcessor extends BMS {
     private final static Logger LOG = LoggerFactory.getLogger(HuaweiEsm48150BmsModbusProcessor.class);
@@ -49,7 +49,7 @@ public class HuaweiEsm48150BmsModbusProcessor extends BMS {
     @Override
     protected void collectData(final Port port) throws IOException {
         try {
-            sendMessage(port, RegisterCode.READ_HOLDING_REGISTERS, 0, 45, getBmsId(), this::readAllData);
+            sendMessage(port, RegisterCode.READ_HOLDING_REGISTERS, 0, 49, getBmsId(), this::readAllData);
         } catch (final IOException e) {
             LOG.error("Error reading from ESM-48150B1 modbus!", e);
             throw e;
@@ -110,11 +110,11 @@ public class HuaweiEsm48150BmsModbusProcessor extends BMS {
             frame.getInt();
         }
 
-        // regs 35-45 (PDU 34-44): cell voltages in mV
+        // regs 35-49 (PDU 34-48): cell voltages in mV (15 cells)
         pack.numberOfCells = 0;
         pack.minCellmV = Integer.MAX_VALUE;
         pack.maxCellmV = Integer.MIN_VALUE;
-        for (int i = 0; i < 11; i++) {
+        for (int i = 0; i < 15; i++) {
             final short raw = (short) frame.getInt();
             if (raw != -1) { // 0xFFFF = no cell connected
                 pack.cellVmV[i] = raw; // mV direct
