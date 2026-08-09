@@ -35,16 +35,18 @@ if ! java -version &>/dev/null; then
 fi
 
 # ── 3. Build ──────────────────────────────────────────────────────────────────
+if ! command -v mvn &>/dev/null; then
+    if [[ -f "$ZIP" ]]; then
+        echo "Maven not found — using existing build: $ZIP"
+    else
+        echo "Maven not found — installing maven..."
+        apt-get install -y maven
+    fi
+fi
+
 if command -v mvn &>/dev/null; then
     echo "Building..."
     sudo -u "$SERVICE_USER" bash -c "cd '$SCRIPT_DIR' && mvn package -DskipTests -q"
-elif [[ -f "$ZIP" ]]; then
-    echo "Maven not found — using existing build: $ZIP"
-else
-    echo "ERROR: Maven not found and no pre-built zip at $ZIP" >&2
-    echo "Either install Maven or copy a pre-built bms-to-inverter.zip to:" >&2
-    echo "  $ZIP" >&2
-    exit 1
 fi
 
 # ── 4. Stop existing service / processes ──────────────────────────────────────
