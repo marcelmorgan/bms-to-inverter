@@ -144,10 +144,11 @@ public class HuaweiEsm48150BmsModbusProcessor extends BMS {
         }
 
         // PDU 67+69: serial number (PDU 68 is always zero, skip it)
-        final int serialHi = frame.getInt() & 0xFFFF;
+        // lo-first byte order (PDU69<<16|PDU67) gives plausible 10-digit values matching EX format
+        final long serialHi = frame.getInt() & 0xFFFF;
         frame.getInt(); // PDU 68: zero
-        final int serialLo = frame.getInt() & 0xFFFF;
-        pack.serialnumber = String.format("%04X-%04X", serialHi, serialLo);
+        final long serialLo = frame.getInt() & 0xFFFF;
+        pack.serialnumber = String.format("EX%010d", (serialLo << 16) | serialHi);
     }
 
 }
